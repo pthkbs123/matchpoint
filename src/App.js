@@ -1,25 +1,25 @@
-import logo from './logo.svg';
+import { useState } from 'react';
 import './App.css';
+import MainPage from './pages/MainPage';
+import CameraPage from './pages/CameraPage';
+import CapturePreviewPage from './pages/CapturePreviewPage';
+import AnalyzingPage from './pages/AnalyzingPage';
+import ResultPage from './pages/ResultPage';
+import ReportPage from './pages/ReportPage';
 
 function App() {
-  return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          React
-        </a>
-      </header>
-    </div>
-  );
+  const [page, setPage] = useState('home');
+
+  const pages = {
+    home: <MainPage onNavigate={setPage} />,
+    camera: <CameraPage onNavigate={setPage} />,
+    preview: <CapturePreviewPage onNavigate={setPage} />,
+    analyzing: <AnalyzingPage onNavigate={setPage} />,
+    result: <ResultPage onNavigate={setPage} />,
+    report: <ReportPage onNavigate={setPage} />,
+  };
+
+  return <main className="app-shell">{pages[page]}</main>;
 }
 
 export default App;

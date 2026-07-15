@@ -1,0 +1,5 @@
+function ReportPage({ onNavigate }) {
+  const bars=[38,46,43,58,66,62,78];
+  return <section className="phone"><header className="report-header"><button className="back-button" onClick={()=>onNavigate('home')}>← 뒤로가기</button><p className="eyebrow" style={{color:'#cfe3ff'}}>MONTHLY REPORT</p><h1>7월 구강 건강 리포트</h1><p>꾸준히 좋아지고 있어요. 현재 점수는 84점입니다.</p></header><div className="report-body"><div className="period"><h2>최근 변화</h2><button className="text-button">2026년 7월⌄</button></div><article className="trend-card"><h3>치아 황변 지수</h3><p>낮을수록 깨끗한 상태예요 · 현재 24</p><div className="trend-line">{bars.map((h,i)=><i key={i} style={{'--h':`${h}%`}} />)}</div></article><article className="trend-card"><h3>잇몸 염증 지수</h3><p>지난달 대비 3점 증가 · 현재 38</p><div className="trend-line">{[35,42,38,48,44,56,63].map((h,i)=><i key={i} style={{'--h':`${h}%`}} />)}</div></article></div><nav className="bottom-nav"><button className="nav-item" onClick={()=>onNavigate('home')}><span>⌂</span>홈</button><button className="nav-item active"><span>▥</span>리포트</button><button className="nav-item" onClick={()=>onNavigate('camera')}><span>◉</span>촬영</button></nav></section>;
+}
+export default ReportPage;
