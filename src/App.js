@@ -6,9 +6,11 @@ import CapturePreviewPage from './pages/CapturePreviewPage';
 import AnalyzingPage from './pages/AnalyzingPage';
 import ResultPage from './pages/ResultPage';
 import ReportPage from './pages/ReportPage';
+import LoginPage from './pages/LoginPage';
+import MyPage from './pages/MyPage';
 
 function App() {
-  const [page, setPage] = useState('home');
+  const [page, setPage] = useState('login');
   const [capturedBlob, setCapturedBlob] = useState(null);
   const [capturedUrl, setCapturedUrl] = useState(null);
   const [analysisResult, setAnalysisResult] = useState(null);
@@ -23,7 +25,9 @@ function App() {
   }, []);
 
   const pages = {
+    login: <LoginPage onLogin={() => setPage('home')} />,
     home: <MainPage onNavigate={setPage} />,
+    mypage: <MyPage onNavigate={setPage} />,
     camera: <CameraPage onNavigate={setPage} onCapture={handleCapture} />,
     preview: <CapturePreviewPage onNavigate={setPage} capturedUrl={capturedUrl} />,
     analyzing: (
