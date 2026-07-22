@@ -21,3 +21,10 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# YOLO local training (pc_setup)
+/pc_setup/venv/
+/pc_setup/dataset_yolo/
+/pc_setup/**/__pycache__/
+/pc_setup/*.pt
+/runs/
