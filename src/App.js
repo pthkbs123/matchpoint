@@ -6,12 +6,16 @@ import CapturePreviewPage from './pages/CapturePreviewPage';
 import AnalyzingPage from './pages/AnalyzingPage';
 import ResultPage from './pages/ResultPage';
 import ReportPage from './pages/ReportPage';
+import LoginPage from './pages/LoginPage';
+import MyPage from './pages/MyPage';
 
 function App() {
-  const [page, setPage] = useState('home');
+  const [page, setPage] = useState('login');
 
   const pages = {
+    login: <LoginPage onLogin={() => setPage('home')} />,
     home: <MainPage onNavigate={setPage} />,
+    mypage: <MyPage onNavigate={setPage} />,
     camera: <CameraPage onNavigate={setPage} />,
     preview: <CapturePreviewPage onNavigate={setPage} />,
     analyzing: <AnalyzingPage onNavigate={setPage} />,

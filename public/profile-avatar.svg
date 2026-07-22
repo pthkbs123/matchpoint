@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-labelledby="title">
+  <title id="title">사용자 프로필 일러스트</title>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#dcebff"/>
+      <stop offset="1" stop-color="#8ec0ff"/>
+    </linearGradient>
+  </defs>
+  <rect width="120" height="120" rx="34" fill="url(#background)"/>
+  <circle cx="60" cy="48" r="24" fill="#ffd9c2"/>
+  <path d="M35 49c0-22 12-34 28-34 17 0 27 13 25 36-7-2-14-8-18-16-7 8-18 14-35 14Z" fill="#253858"/>
+  <path d="M25 116c2-25 16-39 35-39s33 14 35 39" fill="#2f80ed"/>
+  <circle cx="51" cy="49" r="2" fill="#253858"/>
+  <circle cx="70" cy="49" r="2" fill="#253858"/>
+  <path d="M53 61c5 4 10 4 15 0" fill="none" stroke="#d97e72" stroke-width="2.5" stroke-linecap="round"/>
+</svg>
