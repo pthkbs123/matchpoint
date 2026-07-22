@@ -1,3 +1,13 @@
+# SmileGuard 소셜 로그인 설정
+
+프로젝트 루트에서 `.env.example`을 복사해 `.env`를 만들고 발급받은 공개 키를 입력합니다.
+
+- Google Cloud Console: 웹 애플리케이션 OAuth 클라이언트 ID와 승인된 JavaScript 원본 등록
+- Kakao Developers: JavaScript 키, Web 플랫폼 도메인, 카카오 로그인 활성화, Redirect URI와 동의항목 등록
+- Flask 서버: `POST /api/auth/google`에서 Google ID 토큰 검증, `POST /api/auth/kakao`에서 인가 코드를 토큰으로 교환
+
+두 서버 응답은 `{ "accessToken": "...", "user": { "name": "...", "email": "...", "picture": "..." } }` 형식을 사용합니다. REST API 키와 Client Secret은 React 환경변수에 넣지 않고 Flask 서버에서만 관리합니다.
+
 # Getting Started with Create React App
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).

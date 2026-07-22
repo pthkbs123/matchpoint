@@ -1,4 +1,7 @@
-function MyPage({ onNavigate }) {
+function MyPage({ onNavigate, onLogout, user }) {
+  const userName = user?.name || user?.nickname || '한이음';
+  const userEmail = user?.email || 'hani@example.com';
+  const profileImage = user?.picture || user?.profileImage || '/profile-avatar.svg';
   const menuItems = [
     { icon: '◎', title: '내 정보 관리', description: '이름과 프로필을 수정해요' },
     { icon: '◇', title: '기준값 관리', description: '구강 분석 기준값을 확인하고 재설정해요' },
@@ -18,13 +21,13 @@ function MyPage({ onNavigate }) {
 
         <div className="profile-card">
           <div className="profile-image-wrap">
-            <img src="/profile-avatar.svg" alt="한이음 님 프로필" />
+            <img src={profileImage} alt={`${userName} 님 프로필`} />
             <button type="button" className="profile-edit" aria-label="프로필 사진 변경">
               ✎
             </button>
           </div>
-          <h2>한이음 님</h2>
-          <p>hani@example.com</p>
+          <h2>{userName} 님</h2>
+          <p>{userEmail}</p>
           <span className="profile-status">SmileGuard와 함께한 지 24일째</span>
         </div>
 
@@ -47,7 +50,7 @@ function MyPage({ onNavigate }) {
           ))}
         </div>
 
-        <button type="button" className="logout-button" onClick={() => onNavigate('login')}>
+        <button type="button" className="logout-button" onClick={onLogout}>
           로그아웃
         </button>
       </div>
