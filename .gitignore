@@ -28,4 +28,5 @@ yarn-error.log*
 /pc_setup/dataset_yolo/
 /pc_setup/**/__pycache__/
 /pc_setup/*.pt
+/pc_setup/backend/*.db
 /runs/

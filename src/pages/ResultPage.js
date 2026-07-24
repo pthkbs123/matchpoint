@@ -1,6 +1,7 @@
 function ResultPage({ onNavigate, analysisResult, capturedUrl }) {
   const cavityCount = analysisResult?.summary?.cavity_count ?? 0;
   const normalCount = analysisResult?.summary?.normal_count ?? 0;
+  const score = analysisResult?.summary?.score;
   const hasCavity = cavityCount > 0;
   const imageSize = analysisResult?.image_size;
 
@@ -53,6 +54,13 @@ function ResultPage({ onNavigate, analysisResult, capturedUrl }) {
             <strong>{normalCount}</strong>
             <span>개 부위</span>
           </article>
+          {score != null && (
+            <article className={`metric ${score >= 80 ? 'good' : 'watch'}`}>
+              <span>이번 촬영 점수</span>
+              <strong>{score}</strong>
+              <span>/ 100점</span>
+            </article>
+          )}
         </div>
 
         <div className="notice">

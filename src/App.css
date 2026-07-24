@@ -144,7 +144,7 @@ h1 { margin-bottom: 8px; font-size: 26px; line-height: 1.35; letter-spacing: -0.
 .detect-box { position: absolute; border: 2px solid; border-radius: 4px; }
 .detect-box.cavity { border-color: var(--danger); background: rgba(240, 100, 100, .18); }
 .detect-box.normal { border-color: var(--blue-500); background: rgba(47, 128, 237, .12); }
-.metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 12px; }
 .metric { padding: 20px 16px; border: 1px solid var(--line); border-radius: 20px; }
 .metric span { color: var(--muted); font-size: 12px; }
 .metric strong { display: block; font-size: 29px; margin: 7px 0; }

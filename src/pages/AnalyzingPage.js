@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { API_BASE } from '../api';
 
-const API_BASE = 'http://localhost:8000';
-
-function AnalyzingPage({ onNavigate, capturedBlob, onAnalysisComplete }) {
+function AnalyzingPage({ onNavigate, capturedBlob, token, onAnalysisComplete }) {
   const [error, setError] = useState(null);
+  const hasSubmittedRef = useRef(false);
 
   useEffect(() => {
     if (!capturedBlob) {
@@ -11,27 +11,29 @@ function AnalyzingPage({ onNavigate, capturedBlob, onAnalysisComplete }) {
       return;
     }
 
-    let cancelled = false;
+    // StrictMode 개발 모드는 effect를 mount→cleanup→mount로 두 번 실행한다.
+    // AbortController로 첫 요청을 중단해도 로컬 서버는 이미 처리를 끝내버려 DB에 중복 저장되므로,
+    // ref로 두 번째 실행 자체에서 fetch가 생성되지 않도록 막는다.
+    if (hasSubmittedRef.current) return;
+    hasSubmittedRef.current = true;
+
     const formData = new FormData();
     formData.append('file', capturedBlob, 'capture.jpg');
 
-    fetch(`${API_BASE}/analyze`, { method: 'POST', body: formData })
+    const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+
+    fetch(`${API_BASE}/analyze`, { method: 'POST', body: formData, headers })
       .then((res) => {
         if (!res.ok) throw new Error('분석 요청이 실패했어요.');
         return res.json();
       })
       .then((data) => {
-        if (cancelled) return;
         onAnalysisComplete(data);
         onNavigate('result');
       })
       .catch((err) => {
-        if (!cancelled) setError(err.message || '분석 중 오류가 발생했어요.');
+        setError(err.message || '분석 중 오류가 발생했어요.');
       });
-
-    return () => {
-      cancelled = true;
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [capturedBlob]);
 

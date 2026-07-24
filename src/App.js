@@ -54,14 +54,15 @@ function App() {
 
   const pages = {
     login: <LoginPage onLogin={handleLogin} />,
-    home: <MainPage onNavigate={setPage} user={session?.user} />,
-    mypage: <MyPage onNavigate={setPage} user={session?.user} onLogout={handleLogout} />,
+    home: <MainPage onNavigate={setPage} user={session?.user} token={session?.accessToken} />,
+    mypage: <MyPage onNavigate={setPage} user={session?.user} token={session?.accessToken} onLogout={handleLogout} />,
     camera: <CameraPage onNavigate={setPage} onCapture={handleCapture} />,
     preview: <CapturePreviewPage onNavigate={setPage} capturedUrl={capturedUrl} />,
     analyzing: (
       <AnalyzingPage
         onNavigate={setPage}
         capturedBlob={capturedBlob}
+        token={session?.accessToken}
         onAnalysisComplete={setAnalysisResult}
       />
     ),

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -8,6 +9,7 @@ import {
   Filler,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
+import { apiFetch } from '../api';
 
 ChartJS.register(
   CategoryScale,
@@ -18,15 +20,30 @@ ChartJS.register(
   Filler
 );
 
-function MainPage({ onNavigate, user }) {
+function MainPage({ onNavigate, user, token }) {
   const userName = user?.name || user?.nickname || '한이음';
   const profileImage = user?.picture || user?.profileImage || '/profile-avatar.svg';
+  const [summary, setSummary] = useState(null);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    apiFetch('/api/report/summary', { token })
+      .then((data) => { if (!cancelled) setSummary(data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [token]);
+
+  const trend = summary?.weekly_trend;
+  const hasTrend = trend && trend.scores.length > 0;
+  const currentScore = summary?.current_score ?? 100;
+
   const weeklyScoreData = {
-    labels: ['월', '화', '수', '목', '금', '토', '일'],
+    labels: hasTrend ? trend.labels : [],
     datasets: [
       {
         label: '구강 건강 점수',
-        data: [72, 75, 74, 78, 80, 79, 84],
+        data: hasTrend ? trend.scores : [],
         borderColor: '#2f80ed',
         backgroundColor: 'rgba(47, 128, 237, 0.12)',
         pointBackgroundColor: '#ffffff',
@@ -85,11 +102,18 @@ function MainPage({ onNavigate, user }) {
           <h2>구강 촬영 시작</h2><p>오늘은 아직 촬영하지 않았어요</p>
         </div>
         <div className="report-card">
-          <div className="card-head"><h2>7월 리포트</h2><button className="text-button" onClick={() => onNavigate('report')}>전체보기 ›</button></div>
+          <div className="card-head"><h2>이번 달 리포트</h2><button className="text-button" onClick={() => onNavigate('report')}>전체보기 ›</button></div>
           <div className="mini-chart">
-            <Line data={weeklyScoreData} options={weeklyScoreOptions} />
+            {hasTrend ? (
+              <Line data={weeklyScoreData} options={weeklyScoreOptions} />
+            ) : (
+              <p className="subtext" style={{ textAlign: 'center', paddingTop: 36 }}>아직 측정 기록이 없어요</p>
+            )}
           </div>
-          <div className="score-row"><div className="score"><strong>84</strong><span> 점 · 양호</span></div><span className="change">지난주 대비 +5</span></div>
+          <div className="score-row">
+            <div className="score"><strong>{currentScore}</strong><span> 점 · {currentScore >= 80 ? '양호' : currentScore >= 50 ? '주의' : '관리 필요'}</span></div>
+            <span className="change">누적 측정 {summary?.total_scans ?? 0}회</span>
+          </div>
         </div>
       </div>
       <nav className="bottom-nav"><button className="nav-item active"><span>◉</span>점수</button><button className="nav-item" onClick={() => onNavigate('report')}><span>▧</span>사진</button><button className="nav-item" onClick={() => onNavigate('mypage')}><span>⚙</span>설정</button></nav>
