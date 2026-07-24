@@ -18,7 +18,9 @@ ChartJS.register(
   Filler
 );
 
-function MainPage({ onNavigate }) {
+function MainPage({ onNavigate, user }) {
+  const userName = user?.name || user?.nickname || '한이음';
+  const profileImage = user?.picture || user?.profileImage || '/profile-avatar.svg';
   const weeklyScoreData = {
     labels: ['월', '화', '수', '목', '금', '토', '일'],
     datasets: [
@@ -69,13 +71,13 @@ function MainPage({ onNavigate }) {
     <section className="phone">
       <div className="page-content">
         <div className="top-row">
-          <div><p className="eyebrow">SMILEGUARD</p><h1>안녕하세요, 한이음 님</h1><p className="subtext">오늘도 건강한 미소를 확인해 보세요.</p></div>
+          <div><p className="eyebrow">SMILEGUARD</p><h1>안녕하세요, {userName} 님</h1><p className="subtext">오늘도 건강한 미소를 확인해 보세요.</p></div>
           <button
             className="profile-button"
             onClick={() => onNavigate('mypage')}
             aria-label="마이페이지로 이동"
           >
-            <img src="/profile-avatar.svg" alt="한이음 님 프로필" />
+            <img src={profileImage} alt={`${userName} 님 프로필`} />
           </button>
         </div>
         <div className="start-card">
