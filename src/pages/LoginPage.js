@@ -4,8 +4,8 @@ const GOOGLE_SCRIPT_URL = 'https://accounts.google.com/gsi/client';
 const KAKAO_SCRIPT_URL = 'https://t1.kakaocdn.net/kakao_js_sdk/2.8.1/kakao.min.js';
 const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
 const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID;
-const KAKAO_JAVASCRIPT_KEY = '${1073efd2b89226179c73ceb60ea9cc3c}';
-const KAKAO_REDIRECT_URI ='${http://localhost:3000}' || `${window.location.origin}/`;
+const KAKAO_JAVASCRIPT_KEY = process.env.REACT_APP_KAKAO_JAVASCRIPT_KEY;
+const KAKAO_REDIRECT_URI = process.env.REACT_APP_KAKAO_REDIRECT_URI || `${window.location.origin}/`;
 
 function loadScript(id, src) {
   return new Promise((resolve, reject) => {
