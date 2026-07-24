@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import './App.css';
 import MainPage from './pages/MainPage';
 import CameraPage from './pages/CameraPage';
@@ -18,6 +18,18 @@ function App() {
   const [page, setPage] = useState(() => {
     return savedSession ? 'home' : 'login';
   });
+  const [capturedBlob, setCapturedBlob] = useState(null);
+  const [capturedUrl, setCapturedUrl] = useState(null);
+  const [analysisResult, setAnalysisResult] = useState(null);
+
+  const handleCapture = useCallback((blob) => {
+    setCapturedUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(blob);
+    });
+    setCapturedBlob(blob);
+    setAnalysisResult(null);
+  }, []);
 
   const handleLogin = ({ user, accessToken, provider, remember }) => {
     const storage = remember ? localStorage : sessionStorage;
@@ -44,10 +56,16 @@ function App() {
     login: <LoginPage onLogin={handleLogin} />,
     home: <MainPage onNavigate={setPage} user={session?.user} />,
     mypage: <MyPage onNavigate={setPage} user={session?.user} onLogout={handleLogout} />,
-    camera: <CameraPage onNavigate={setPage} />,
-    preview: <CapturePreviewPage onNavigate={setPage} />,
-    analyzing: <AnalyzingPage onNavigate={setPage} />,
-    result: <ResultPage onNavigate={setPage} />,
+    camera: <CameraPage onNavigate={setPage} onCapture={handleCapture} />,
+    preview: <CapturePreviewPage onNavigate={setPage} capturedUrl={capturedUrl} />,
+    analyzing: (
+      <AnalyzingPage
+        onNavigate={setPage}
+        capturedBlob={capturedBlob}
+        onAnalysisComplete={setAnalysisResult}
+      />
+    ),
+    result: <ResultPage onNavigate={setPage} analysisResult={analysisResult} capturedUrl={capturedUrl} />,
     report: <ReportPage onNavigate={setPage} />,
   };
 

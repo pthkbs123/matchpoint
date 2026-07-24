@@ -117,6 +117,7 @@ h1 { margin-bottom: 8px; font-size: 26px; line-height: 1.35; letter-spacing: -0.
   left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(-5deg); filter: saturate(.85);
 }
 .camera-guide { position: absolute; inset: 25% 12%; border: 2px dashed rgba(255,255,255,.7); border-radius: 80px; }
+.camera-feed { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .camera-hint { position: absolute; left: 0; right: 0; top: 17%; text-align: center; font-size: 13px; }
 .camera-top { position: absolute; z-index: 2; left: 18px; right: 18px; top: 22px; display: flex; justify-content: space-between; }
 .dark-button { background: rgba(3,12,22,.58); color: white; backdrop-filter: blur(8px); }
@@ -138,6 +139,11 @@ h1 { margin-bottom: 8px; font-size: 26px; line-height: 1.35; letter-spacing: -0.
 
 .result-hero { margin: 28px 0; padding: 28px; background: var(--blue-50); border-radius: 28px; text-align: center; }
 .result-hero .check { display: grid; place-items: center; margin: auto auto 14px; width: 58px; height: 58px; border-radius: 50%; background: var(--blue-500); color: white; font-size: 27px; }
+.result-image { position: relative; margin-bottom: 20px; border-radius: 20px; overflow: hidden; line-height: 0; }
+.result-image img { width: 100%; display: block; }
+.detect-box { position: absolute; border: 2px solid; border-radius: 4px; }
+.detect-box.cavity { border-color: var(--danger); background: rgba(240, 100, 100, .18); }
+.detect-box.normal { border-color: var(--blue-500); background: rgba(47, 128, 237, .12); }
 .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .metric { padding: 20px 16px; border: 1px solid var(--line); border-radius: 20px; }
 .metric span { color: var(--muted); font-size: 12px; }
