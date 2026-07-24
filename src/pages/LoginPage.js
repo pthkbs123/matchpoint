@@ -34,13 +34,12 @@ async function requestSocialLogin(path, payload) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
     body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
-    throw new Error(data.message || '소셜 로그인 처리에 실패했습니다.');
+    throw new Error(data.detail || data.message || '로그인 처리에 실패했습니다.');
   }
 
   return response.json();
@@ -156,14 +155,19 @@ function LoginPage({ onLogin }) {
       });
   }, [completeSocialLogin]);
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
-    localStorage.setItem('smileguard-auto-login', String(autoLogin));
-    onLogin({
-      user: { name: '한이음', email, picture: '/profile-avatar.svg' },
-      provider: 'email',
-      remember: autoLogin,
-    });
+    setSocialError('');
+    setIsSocialLoading(true);
+    try {
+      const data = await requestSocialLogin('/api/auth/email', { email, password });
+      localStorage.setItem('smileguard-auto-login', String(autoLogin));
+      completeSocialLogin(data, 'email');
+    } catch (error) {
+      setSocialError(error.message);
+    } finally {
+      setIsSocialLoading(false);
+    }
   };
 
   const handleKakaoLogin = () => {

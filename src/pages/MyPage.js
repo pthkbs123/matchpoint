@@ -1,7 +1,21 @@
-function MyPage({ onNavigate, onLogout, user }) {
+import { useEffect, useState } from 'react';
+import { apiFetch } from '../api';
+
+function MyPage({ onNavigate, onLogout, user, token }) {
   const userName = user?.name || user?.nickname || '한이음';
   const userEmail = user?.email || 'hani@example.com';
   const profileImage = user?.picture || user?.profileImage || '/profile-avatar.svg';
+  const [summary, setSummary] = useState(null);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    apiFetch('/api/report/summary', { token })
+      .then((data) => { if (!cancelled) setSummary(data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [token]);
+
   const menuItems = [
     { icon: '◎', title: '내 정보 관리', description: '이름과 프로필을 수정해요' },
     { icon: '◇', title: '기준값 관리', description: '구강 분석 기준값을 확인하고 재설정해요' },
@@ -28,13 +42,13 @@ function MyPage({ onNavigate, onLogout, user }) {
           </div>
           <h2>{userName} 님</h2>
           <p>{userEmail}</p>
-          <span className="profile-status">SmileGuard와 함께한 지 24일째</span>
+          <span className="profile-status">SmileGuard와 함께한 지 {summary?.member_since_days ?? 0}일째</span>
         </div>
 
         <div className="mypage-summary">
-          <div><strong>84</strong><span>현재 점수</span></div>
-          <div><strong>7회</strong><span>누적 측정</span></div>
-          <div><strong>3주</strong><span>연속 관리</span></div>
+          <div><strong>{summary?.current_score ?? 100}</strong><span>현재 점수</span></div>
+          <div><strong>{summary?.total_scans ?? 0}회</strong><span>누적 측정</span></div>
+          <div><strong>{summary?.streak_days ?? 0}일</strong><span>연속 관리</span></div>
         </div>
 
         <div className="mypage-menu">
