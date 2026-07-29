@@ -45,7 +45,7 @@ async function requestSocialLogin(path, payload) {
   return response.json();
 }
 
-function LoginPage({ onLogin }) {
+function LoginPage({ onLogin, onNavigate }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [autoLogin, setAutoLogin] = useState(
@@ -239,7 +239,7 @@ function LoginPage({ onLogin }) {
         {isSocialLoading && <p className="social-status">계정 정보를 확인하고 있어요...</p>}
         {socialError && <p className="social-error" role="alert">{socialError}</p>}
 
-        <p className="join-text">아직 회원이 아니신가요?<button type="button" className="text-button">회원가입</button></p>
+        <p className="join-text">아직 회원이 아니신가요?<button type="button" className="text-button" onClick={() => onNavigate('signup')}>회원가입</button></p>
       </div>
     </section>
   );

@@ -7,6 +7,7 @@ import AnalyzingPage from './pages/AnalyzingPage';
 import ResultPage from './pages/ResultPage';
 import ReportPage from './pages/ReportPage';
 import LoginPage from './pages/LoginPage';
+import SignUpPage from './pages/SignUpPage';
 import MyPage from './pages/MyPage';
 
 function App() {
@@ -53,7 +54,8 @@ function App() {
   };
 
   const pages = {
-    login: <LoginPage onLogin={handleLogin} />,
+    login: <LoginPage onLogin={handleLogin} onNavigate={setPage} />,
+    signup: <SignUpPage onNavigate={setPage} />,
     home: <MainPage onNavigate={setPage} user={session?.user} token={session?.accessToken} />,
     mypage: <MyPage onNavigate={setPage} user={session?.user} token={session?.accessToken} onLogout={handleLogout} />,
     camera: <CameraPage onNavigate={setPage} onCapture={handleCapture} />,
