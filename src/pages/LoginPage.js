@@ -37,16 +37,16 @@ async function requestSocialLogin(path, payload) {
     body: JSON.stringify(payload),
   });
 
-  if (!response.ok) {
+  /*if (!response.ok) {
     const data = await response.json().catch(() => ({}));
     throw new Error(data.detail || data.message || '로그인 처리에 실패했습니다.');
-  }
+  }*/
 
   return response.json();
 }
 
 function LoginPage({ onLogin }) {
-  const [email, setEmail] = useState('');
+  const [userId, setUserId] = useState('');
   const [password, setPassword] = useState('');
   const [autoLogin, setAutoLogin] = useState(
     () => localStorage.getItem('smileguard-auto-login') === 'true'
@@ -155,19 +155,20 @@ function LoginPage({ onLogin }) {
       });
   }, [completeSocialLogin]);
 
-  const handleSubmit = async (event) => {
+  const handleSubmit = (event) => {
     event.preventDefault();
     setSocialError('');
-    setIsSocialLoading(true);
-    try {
-      const data = await requestSocialLogin('/api/auth/email', { email, password });
-      localStorage.setItem('smileguard-auto-login', String(autoLogin));
-      completeSocialLogin(data, 'email');
-    } catch (error) {
-      setSocialError(error.message);
-    } finally {
-      setIsSocialLoading(false);
-    }
+    localStorage.setItem('smileguard-auto-login', String(autoLogin));
+    onLogin({
+      user: {
+        name: userId,
+        email: userId.includes('@') ? userId : `${userId}@smileguard.local`,
+        picture: '/profile-avatar.svg',
+      },
+      accessToken: 'development-login',
+      provider: 'development',
+      remember: autoLogin,
+    });
   };
 
   const handleKakaoLogin = () => {
@@ -203,8 +204,8 @@ function LoginPage({ onLogin }) {
 
         <form className="login-form" onSubmit={handleSubmit}>
           <label className="input-group">
-            <span>이메일</span>
-            <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="이메일을 입력해 주세요" autoComplete="email" required />
+            <span>아이디</span>
+            <input type="text" value={userId} onChange={(event) => setUserId(event.target.value)} placeholder="아이디를 입력해 주세요" autoComplete="username" required />
           </label>
           <label className="input-group">
             <span>비밀번호</span>
