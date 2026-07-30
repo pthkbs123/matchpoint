@@ -30,6 +30,10 @@ function validate(form) {
     errors.email = '올바른 이메일 형식이 아니에요.';
   }
 
+  if (!form.birthplace.trim()) {
+    errors.birthplace = '태어난 지역을 입력해 주세요.';
+  }
+
   if (!form.password) {
     errors.password = '비밀번호를 입력해 주세요.';
   } else if (form.password.length < 8) {
@@ -44,7 +48,7 @@ function validate(form) {
 }
 
 function SignUpPage({ onNavigate }) {
-  const [form, setForm] = useState({ name: '', email: '', password: '', confirmPassword: '' });
+  const [form, setForm] = useState({ name: '', email: '', birthplace: '', password: '', confirmPassword: '' });
   const [errors, setErrors] = useState({});
   const [serverError, setServerError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -64,7 +68,7 @@ function SignUpPage({ onNavigate }) {
     setServerError('');
     setIsSubmitting(true);
     try {
-      await requestSignUp({ email: form.email, password: form.password, name: form.name });
+      await requestSignUp({ email: form.email, birthplace: form.birthplace, password: form.password, name: form.name });
       setIsDone(true);
     } catch (error) {
       setServerError(error.message);
@@ -112,6 +116,11 @@ function SignUpPage({ onNavigate }) {
             <span>이메일</span>
             <input name="email" type="email" value={form.email} onChange={handleChange} placeholder="이메일을 입력해 주세요" autoComplete="email" />
             {errors.email && <p className="social-error" role="alert">{errors.email}</p>}
+          </label>
+          <label className="input-group">
+            <span>내가 태어난 지역은?</span>
+            <input name="birthplace" type="text" value={form.birthplace} onChange={handleChange} placeholder="예: 서울특별시" autoComplete="off" />
+            {errors.birthplace && <p className="social-error" role="alert">{errors.birthplace}</p>}
           </label>
           <label className="input-group">
             <span>비밀번호</span>

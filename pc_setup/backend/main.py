@@ -12,22 +12,33 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from dotenv import load_dotenv
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from PIL import Image
 from pydantic import BaseModel
-from dotenv import load_dotenv
 from ultralytics import YOLO
-
-from auth import create_session, hash_password, optional_user, require_user, verify_password
-from db import get_conn, init_db, now_iso
 
 BACKEND_DIR = Path(__file__).parent
 PROJECT_ROOT = BACKEND_DIR.parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 load_dotenv(BACKEND_DIR / ".env", override=True)
+
+from auth import (
+    create_password_reset_token,
+    create_session,
+    get_valid_password_reset,
+    hash_password,
+    mark_password_reset_used,
+    mask_email,
+    optional_user,
+    require_user,
+    verify_password,
+)
+from db import get_conn, init_db, now_iso
+from mailer import send_reset_password_email
 
 MODEL_PATH = BACKEND_DIR / "model" / "best.pt"
 GOOGLE_CLIENT_ID = (
@@ -80,6 +91,7 @@ class EmailAuthRequest(BaseModel):
     email: str
     password: str
     name: str | None = None
+    birthplace: str | None = None
 
 
 class KakaoAuthRequest(BaseModel):
@@ -165,8 +177,8 @@ def auth_email(payload: EmailAuthRequest):
             # 계정이 없으면 최초 로그인 시점에 자동으로 만들어준다 (데모용 간이 가입)
             name = payload.name or email.split("@")[0]
             cur = conn.execute(
-                "INSERT INTO users (email, password_hash, name, picture, provider, created_at) VALUES (?, ?, ?, ?, 'email', ?)",
-                (email, hash_password(payload.password), name, None, now_iso()),
+                "INSERT INTO users (email, password_hash, name, birthplace, picture, provider, created_at) VALUES (?, ?, ?, ?, ?, 'email', ?)",
+                (email, hash_password(payload.password), name, payload.birthplace, None, now_iso()),
             )
             row = conn.execute("SELECT * FROM users WHERE id = ?", (cur.lastrowid,)).fetchone()
         elif not row["password_hash"] or not verify_password(payload.password, row["password_hash"]):
@@ -266,6 +278,110 @@ def auth_google(payload: GoogleAuthRequest):
     )
 
 
+class FindIdRequest(BaseModel):
+    name: str
+    birthplace: str
+
+
+@app.post("/api/auth/find-id")
+def find_id(payload: FindIdRequest):
+    name = payload.name.strip()
+    birthplace = payload.birthplace.strip()
+    if not name or not birthplace:
+        raise HTTPException(status_code=400, detail="이름과 태어난 지역을 입력해주세요.")
+
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE name = ? AND birthplace = ?", (name, birthplace)
+        ).fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="일치하는 계정을 찾을 수 없어요.")
+
+    return {"maskedId": mask_email(row["email"])}
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+
+
+@app.post("/api/auth/reset-password/request")
+def reset_password_request(payload: ResetPasswordRequest):
+    email = payload.email.strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="이메일을 입력해주세요.")
+
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="등록된 이메일을 찾을 수 없어요.")
+        token = create_password_reset_token(conn, row["id"])
+
+    send_reset_password_email(email, token)
+    return {"sent": True}
+
+
+class ResetPasswordConfirmRequest(BaseModel):
+    token: str
+    password: str
+
+
+@app.post("/api/auth/reset-password/confirm")
+def reset_password_confirm(payload: ResetPasswordConfirmRequest):
+    if not payload.password or len(payload.password) < 8:
+        raise HTTPException(status_code=400, detail="비밀번호는 8자 이상이어야 해요.")
+
+    with get_conn() as conn:
+        reset_row = get_valid_password_reset(conn, payload.token)
+        if reset_row is None:
+            raise HTTPException(status_code=400, detail="유효하지 않거나 만료된 링크예요.")
+
+        conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (hash_password(payload.password), reset_row["user_id"]),
+        )
+        mark_password_reset_used(conn, payload.token)
+
+    return {"success": True}
+
+
+# ---------------------------------------------------------------------------
+# 자녀 프로필 (보호자 1명이 여러 자녀를 등록할 수 있음)
+# ---------------------------------------------------------------------------
+def _child_json(row) -> dict:
+    return {"id": row["id"], "name": row["name"], "createdAt": row["created_at"]}
+
+
+@app.get("/api/children")
+def list_children(user=Depends(require_user)):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM children WHERE user_id = ? ORDER BY created_at ASC",
+            (user["id"],),
+        ).fetchall()
+    return {"children": [_child_json(row) for row in rows]}
+
+
+class ChildCreateRequest(BaseModel):
+    name: str
+
+
+@app.post("/api/children")
+def create_child(payload: ChildCreateRequest, user=Depends(require_user)):
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="자녀 이름을 입력해주세요.")
+
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO children (user_id, name, created_at) VALUES (?, ?, ?)",
+            (user["id"], name, now_iso()),
+        )
+        row = conn.execute("SELECT * FROM children WHERE id = ?", (cur.lastrowid,)).fetchone()
+
+    return _child_json(row)
+
+
 # ---------------------------------------------------------------------------
 # YOLO 분석
 # ---------------------------------------------------------------------------
@@ -275,7 +391,11 @@ def _score_from_detections(cavity_count: int) -> int:
 
 
 @app.post("/analyze")
-async def analyze(file: UploadFile = File(...), user=Depends(optional_user)):
+async def analyze(
+    file: UploadFile = File(...),
+    child_id: int | None = Form(None),
+    user=Depends(optional_user),
+):
     if model is None:
         raise HTTPException(status_code=503, detail="모델이 아직 로드되지 않았습니다.")
 
@@ -313,10 +433,10 @@ async def analyze(file: UploadFile = File(...), user=Depends(optional_user)):
             conn.execute(
                 """
                 INSERT INTO analysis_records
-                    (user_id, created_at, cavity_count, normal_count, total_detections, score, detections_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (user_id, child_id, created_at, cavity_count, normal_count, total_detections, score, detections_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (user["id"], now_iso(), cavity_count, normal_count, len(detections), score, json.dumps(detections)),
+                (user["id"], child_id, now_iso(), cavity_count, normal_count, len(detections), score, json.dumps(detections)),
             )
 
     return {
@@ -362,15 +482,24 @@ def _calc_streak(created_ats: list[str]) -> int:
 
 
 @app.get("/api/history")
-def history(user=Depends(require_user)):
+def history(child_id: int | None = Query(None), user=Depends(require_user)):
     with get_conn() as conn:
-        rows = conn.execute(
-            """
-            SELECT id, created_at, cavity_count, normal_count, total_detections, score
-            FROM analysis_records WHERE user_id = ? ORDER BY created_at DESC
-            """,
-            (user["id"],),
-        ).fetchall()
+        if child_id is not None:
+            rows = conn.execute(
+                """
+                SELECT id, child_id, created_at, cavity_count, normal_count, total_detections, score
+                FROM analysis_records WHERE user_id = ? AND child_id = ? ORDER BY created_at DESC
+                """,
+                (user["id"], child_id),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT id, child_id, created_at, cavity_count, normal_count, total_detections, score
+                FROM analysis_records WHERE user_id = ? ORDER BY created_at DESC
+                """,
+                (user["id"],),
+            ).fetchall()
     return {"records": [dict(row) for row in rows]}
 
 

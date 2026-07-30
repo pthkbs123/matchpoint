@@ -214,7 +214,11 @@ function LoginPage({ onLogin, onNavigate }) {
               <input type="checkbox" checked={autoLogin} onChange={(event) => setAutoLogin(event.target.checked)} />
               <span className="custom-check">✓</span>자동 로그인
             </label>
-            <button type="button" className="text-button">비밀번호 찾기</button>
+            <span className="find-account-links">
+              <button type="button" className="text-button" onClick={() => onNavigate('find-id')}>아이디 찾기</button>
+              <span aria-hidden="true">|</span>
+              <button type="button" className="text-button" onClick={() => onNavigate('find-password')}>비밀번호 찾기</button>
+            </span>
           </div>
           <button type="submit" className="login-button">로그인</button>
         </form>

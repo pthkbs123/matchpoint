@@ -1,7 +1,8 @@
-"""비밀번호 해싱, 세션 토큰 발급/검증."""
+"""비밀번호 해싱, 세션 토큰 발급/검증, 비밀번호 재설정 토큰."""
 import hashlib
 import os
 import secrets
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Header, HTTPException
 
@@ -65,3 +66,39 @@ def require_user(authorization: str | None = Header(None)):
 def optional_user(authorization: str | None = Header(None)):
     token = _extract_token(authorization)
     return get_user_by_token(token) if token else None
+
+
+def mask_email(email: str) -> str:
+    """abcdef@gmail.com -> ab****@gmail.com 형태로 일부만 보여준다."""
+    local, _, domain = email.partition("@")
+    if not domain:
+        return email
+    visible = local[:2] if len(local) > 2 else local[:1]
+    hidden_length = max(len(local) - len(visible), 2)
+    return f"{visible}{'*' * hidden_length}@{domain}"
+
+
+def create_password_reset_token(conn, user_id: int, ttl_minutes: int = 30) -> str:
+    token = secrets.token_urlsafe(32)
+    created = datetime.now(timezone.utc)
+    expires = created + timedelta(minutes=ttl_minutes)
+    conn.execute(
+        "INSERT INTO password_resets (token, user_id, created_at, expires_at, used) VALUES (?, ?, ?, ?, 0)",
+        (token, user_id, created.isoformat(), expires.isoformat()),
+    )
+    return token
+
+
+def get_valid_password_reset(conn, token: str):
+    row = conn.execute(
+        "SELECT * FROM password_resets WHERE token = ? AND used = 0", (token,)
+    ).fetchone()
+    if row is None:
+        return None
+    if datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc):
+        return None
+    return row
+
+
+def mark_password_reset_used(conn, token: str):
+    conn.execute("UPDATE password_resets SET used = 1 WHERE token = ?", (token,))
