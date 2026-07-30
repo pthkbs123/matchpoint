@@ -50,6 +50,20 @@ uvicorn main:app --reload --port 8000
 - 정상 로드되면 `http://localhost:8000/health` 접속 시 `{"status":"ok","model_loaded":true}` 확인 가능
 - 테스트: `http://localhost:8000/docs` 에서 Swagger UI로 이미지 업로드 테스트 가능
 
+### 카카오·Google 로그인 설정
+
+`backend/.env.example`을 `backend/.env`로 복사하고 서버용 키를 입력합니다.
+
+```env
+GOOGLE_CLIENT_ID=Google 웹 클라이언트 ID
+KAKAO_REST_API_KEY=카카오 REST API 키
+KAKAO_CLIENT_SECRET=카카오 클라이언트 시크릿
+KAKAO_REDIRECT_URI=http://localhost:3000/
+```
+
+Google 클라이언트 ID와 Redirect URI는 프로젝트 루트 `.env` 값도 자동으로 사용합니다.
+카카오 JavaScript 키와 REST API 키는 서로 다르므로 `KAKAO_REST_API_KEY`에는 반드시 REST API 키를 입력해야 합니다.
+
 ## 6단계. React 프론트와 연동 (다음 단계)
 현재 React 앱(`localhost:3000`)의 `CapturePreviewPage` → `AnalyzingPage` 흐름에서
 촬영한 이미지를 `http://localhost:8000/analyze` 로 POST 하도록 연결하면 됩니다.

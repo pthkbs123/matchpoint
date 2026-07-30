@@ -7,19 +7,39 @@
 """
 import io
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import httpx
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token
 from PIL import Image
 from pydantic import BaseModel
+from dotenv import load_dotenv
 from ultralytics import YOLO
 
 from auth import create_session, hash_password, optional_user, require_user, verify_password
 from db import get_conn, init_db, now_iso
 
-MODEL_PATH = Path(__file__).parent / "model" / "best.pt"
+BACKEND_DIR = Path(__file__).parent
+PROJECT_ROOT = BACKEND_DIR.parent.parent
+load_dotenv(PROJECT_ROOT / ".env")
+load_dotenv(BACKEND_DIR / ".env", override=True)
+
+MODEL_PATH = BACKEND_DIR / "model" / "best.pt"
+GOOGLE_CLIENT_ID = (
+    os.getenv("GOOGLE_CLIENT_ID") or os.getenv("REACT_APP_GOOGLE_CLIENT_ID") or ""
+).strip()
+KAKAO_REST_API_KEY = os.getenv("KAKAO_REST_API_KEY", "").strip()
+KAKAO_CLIENT_SECRET = os.getenv("KAKAO_CLIENT_SECRET", "").strip()
+KAKAO_REDIRECT_URI = (
+    os.getenv("KAKAO_REDIRECT_URI")
+    or os.getenv("REACT_APP_KAKAO_REDIRECT_URI")
+    or "http://localhost:3000/"
+).strip()
 
 app = FastAPI(title="MatchPoint API")
 
@@ -62,6 +82,15 @@ class EmailAuthRequest(BaseModel):
     name: str | None = None
 
 
+class KakaoAuthRequest(BaseModel):
+    code: str
+    redirectUri: str
+
+
+class GoogleAuthRequest(BaseModel):
+    credential: str
+
+
 def _user_json(user_row) -> dict:
     return {
         "name": user_row["name"],
@@ -69,6 +98,58 @@ def _user_json(user_row) -> dict:
         "picture": user_row["picture"] or "/profile-avatar.svg",
         "memberSince": user_row["created_at"],
     }
+
+
+def _social_login_response(
+    provider: str,
+    provider_user_id: str,
+    email: str | None,
+    name: str,
+    picture: str | None,
+) -> dict:
+    """소셜 사용자를 찾거나 만든 뒤 SmileGuard 세션을 발급한다."""
+    normalized_email = (email or "").strip().lower()
+    fallback_email = f"{provider}_{provider_user_id}@oauth.smileguard.local"
+
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE provider = ? AND provider_user_id = ?",
+            (provider, provider_user_id),
+        ).fetchone()
+
+        if row is None:
+            # 같은 이메일의 기존 계정을 자동 연결하면 계정 탈취 위험이 있으므로
+            # 충돌할 때는 공급자 고유 ID 기반 내부 이메일을 사용한다.
+            stored_email = normalized_email or fallback_email
+            email_owner = conn.execute(
+                "SELECT id FROM users WHERE email = ?", (stored_email,)
+            ).fetchone()
+            if email_owner is not None:
+                stored_email = fallback_email
+
+            cur = conn.execute(
+                """
+                INSERT INTO users
+                    (email, password_hash, name, picture, provider, provider_user_id, created_at)
+                VALUES (?, NULL, ?, ?, ?, ?, ?)
+                """,
+                (stored_email, name, picture, provider, provider_user_id, now_iso()),
+            )
+            row = conn.execute(
+                "SELECT * FROM users WHERE id = ?", (cur.lastrowid,)
+            ).fetchone()
+        else:
+            conn.execute(
+                "UPDATE users SET name = ?, picture = ? WHERE id = ?",
+                (name, picture, row["id"]),
+            )
+            row = conn.execute(
+                "SELECT * FROM users WHERE id = ?", (row["id"],)
+            ).fetchone()
+
+        token = create_session(conn, row["id"])
+
+    return {"accessToken": token, "user": _user_json(row)}
 
 
 @app.post("/api/auth/email")
@@ -97,13 +178,92 @@ def auth_email(payload: EmailAuthRequest):
 
 
 @app.post("/api/auth/kakao")
-def auth_kakao():
-    raise HTTPException(status_code=501, detail="카카오 로그인은 아직 준비 중이에요.")
+async def auth_kakao(payload: KakaoAuthRequest):
+    if not KAKAO_REST_API_KEY:
+        raise HTTPException(status_code=503, detail="카카오 REST API 키가 설정되지 않았습니다.")
+    if payload.redirectUri != KAKAO_REDIRECT_URI:
+        raise HTTPException(status_code=400, detail="카카오 Redirect URI가 서버 설정과 일치하지 않습니다.")
+
+    token_form = {
+        "grant_type": "authorization_code",
+        "client_id": KAKAO_REST_API_KEY,
+        "redirect_uri": KAKAO_REDIRECT_URI,
+        "code": payload.code,
+    }
+    if KAKAO_CLIENT_SECRET:
+        token_form["client_secret"] = KAKAO_CLIENT_SECRET
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            token_response = await client.post(
+                "https://kauth.kakao.com/oauth/token",
+                data=token_form,
+            )
+            if token_response.status_code != 200:
+                raise HTTPException(status_code=401, detail="카카오 인증 코드를 확인할 수 없습니다.")
+
+            access_token = token_response.json().get("access_token")
+            if not access_token:
+                raise HTTPException(status_code=401, detail="카카오 액세스 토큰이 없습니다.")
+
+            user_response = await client.get(
+                "https://kapi.kakao.com/v2/user/me",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if user_response.status_code != 200:
+                raise HTTPException(status_code=401, detail="카카오 사용자 정보를 가져오지 못했습니다.")
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail="카카오 인증 서버에 연결할 수 없습니다.") from exc
+
+    kakao_user = user_response.json()
+    provider_user_id = str(kakao_user.get("id", ""))
+    if not provider_user_id:
+        raise HTTPException(status_code=401, detail="카카오 사용자 ID가 없습니다.")
+
+    account = kakao_user.get("kakao_account") or {}
+    profile = account.get("profile") or kakao_user.get("properties") or {}
+    email = account.get("email") if account.get("is_email_verified") else None
+    name = profile.get("nickname") or "카카오 사용자"
+    picture = profile.get("profile_image_url") or profile.get("profile_image")
+
+    return _social_login_response(
+        provider="kakao",
+        provider_user_id=provider_user_id,
+        email=email,
+        name=name,
+        picture=picture,
+    )
 
 
 @app.post("/api/auth/google")
-def auth_google():
-    raise HTTPException(status_code=501, detail="구글 로그인은 아직 준비 중이에요.")
+def auth_google(payload: GoogleAuthRequest):
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(status_code=503, detail="Google 클라이언트 ID가 설정되지 않았습니다.")
+
+    try:
+        google_user = id_token.verify_oauth2_token(
+            payload.credential,
+            google_requests.Request(),
+            GOOGLE_CLIENT_ID,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail="유효하지 않은 Google 로그인입니다.") from exc
+
+    provider_user_id = str(google_user.get("sub", ""))
+    if not provider_user_id:
+        raise HTTPException(status_code=401, detail="Google 사용자 ID가 없습니다.")
+
+    email = google_user.get("email") if google_user.get("email_verified") else None
+    name = google_user.get("name") or "Google 사용자"
+    picture = google_user.get("picture")
+
+    return _social_login_response(
+        provider="google",
+        provider_user_id=provider_user_id,
+        email=email,
+        name=name,
+        picture=picture,
+    )
 
 
 # ---------------------------------------------------------------------------

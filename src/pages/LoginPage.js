@@ -186,7 +186,6 @@ function LoginPage({ onLogin, onNavigate }) {
     window.Kakao.Auth.authorize({
       redirectUri: KAKAO_REDIRECT_URI,
       state,
-      scope: 'profile_nickname,profile_image,friends',
     });
   };
 

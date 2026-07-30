@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
     name TEXT NOT NULL,
     picture TEXT,
     provider TEXT NOT NULL DEFAULT 'email',
+    provider_user_id TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -55,3 +56,18 @@ def get_conn():
 def init_db():
     with get_conn() as conn:
         conn.executescript(SCHEMA)
+
+        # 기존 smileguard.db도 삭제 없이 소셜 로그인 스키마로 올린다.
+        user_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()
+        }
+        if "provider_user_id" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN provider_user_id TEXT")
+
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_users_provider_identity
+            ON users(provider, provider_user_id)
+            WHERE provider_user_id IS NOT NULL
+            """
+        )
