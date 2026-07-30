@@ -9,6 +9,7 @@ import ReportPage from './pages/ReportPage';
 import LoginPage from './pages/LoginPage';
 import SignUpPage from './pages/SignUpPage';
 import MyPage from './pages/MyPage';
+import FindAccountPage from './pages/FindAccountPage';
 
 function App() {
   const savedSession = (() => {
@@ -56,6 +57,8 @@ function App() {
   const pages = {
     login: <LoginPage onLogin={handleLogin} onNavigate={setPage} />,
     signup: <SignUpPage onNavigate={setPage} />,
+    'find-id': <FindAccountPage onNavigate={setPage} initialTab="id" />,
+    'find-password': <FindAccountPage onNavigate={setPage} initialTab="password" />,
     home: <MainPage onNavigate={setPage} user={session?.user} token={session?.accessToken} />,
     mypage: <MyPage onNavigate={setPage} user={session?.user} token={session?.accessToken} onLogout={handleLogout} />,
     camera: <CameraPage onNavigate={setPage} onCapture={handleCapture} />,
