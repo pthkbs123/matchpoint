@@ -19,7 +19,6 @@ function MyPage({ onNavigate, onLogout, user, token }) {
   const menuItems = [
     { icon: '◎', title: '내 정보 관리', description: '이름과 프로필을 수정해요' },
     { icon: '⏱', title: '촬영 히스토리', description: '자녀별 촬영 기록을 확인해요', onClick: () => onNavigate('history') },
-    { icon: '◇', title: '기준값 관리', description: '구강 분석 기준값을 확인하고 재설정해요' },
     { icon: '♧', title: '알림 설정', description: '주간 리포트와 주의 알림을 관리해요' },
   ];
 
