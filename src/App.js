@@ -11,6 +11,7 @@ import SignUpPage from './pages/SignUpPage';
 import MyPage from './pages/MyPage';
 import FindAccountPage from './pages/FindAccountPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
+import HistoryPage from './pages/HistoryPage';
 
 function App() {
   const savedSession = (() => {
@@ -65,6 +66,7 @@ function App() {
     'reset-password': <ResetPasswordPage onNavigate={setPage} token={resetToken} />,
     home: <MainPage onNavigate={setPage} user={session?.user} token={session?.accessToken} />,
     mypage: <MyPage onNavigate={setPage} user={session?.user} token={session?.accessToken} onLogout={handleLogout} />,
+    history: <HistoryPage onNavigate={setPage} token={session?.accessToken} />,
     camera: <CameraPage onNavigate={setPage} onCapture={handleCapture} />,
     preview: <CapturePreviewPage onNavigate={setPage} capturedUrl={capturedUrl} />,
     analyzing: (

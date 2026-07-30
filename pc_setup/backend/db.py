@@ -32,9 +32,17 @@ CREATE TABLE IF NOT EXISTS password_resets (
     used INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS children (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS analysis_records (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id),
+    child_id INTEGER REFERENCES children(id),
     created_at TEXT NOT NULL,
     cavity_count INTEGER NOT NULL,
     normal_count INTEGER NOT NULL,
@@ -69,7 +77,11 @@ def init_db():
 
 def _migrate(conn):
     # 이미 만들어진 DB 파일에는 CREATE TABLE IF NOT EXISTS가 새 컬럼을 추가해주지 않으므로
-    # 기존 users 테이블에 birthplace 컬럼이 없으면 여기서 추가해준다.
-    columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
-    if "birthplace" not in columns:
+    # 기존 테이블에 새 컬럼이 없으면 여기서 추가해준다.
+    user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+    if "birthplace" not in user_columns:
         conn.execute("ALTER TABLE users ADD COLUMN birthplace TEXT")
+
+    record_columns = {row["name"] for row in conn.execute("PRAGMA table_info(analysis_records)")}
+    if "child_id" not in record_columns:
+        conn.execute("ALTER TABLE analysis_records ADD COLUMN child_id INTEGER REFERENCES children(id)")

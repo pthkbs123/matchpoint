@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 from pydantic import BaseModel
@@ -190,6 +190,43 @@ def reset_password_confirm(payload: ResetPasswordConfirmRequest):
 
 
 # ---------------------------------------------------------------------------
+# 자녀 프로필 (보호자 1명이 여러 자녀를 등록할 수 있음)
+# ---------------------------------------------------------------------------
+def _child_json(row) -> dict:
+    return {"id": row["id"], "name": row["name"], "createdAt": row["created_at"]}
+
+
+@app.get("/api/children")
+def list_children(user=Depends(require_user)):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM children WHERE user_id = ? ORDER BY created_at ASC",
+            (user["id"],),
+        ).fetchall()
+    return {"children": [_child_json(row) for row in rows]}
+
+
+class ChildCreateRequest(BaseModel):
+    name: str
+
+
+@app.post("/api/children")
+def create_child(payload: ChildCreateRequest, user=Depends(require_user)):
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="자녀 이름을 입력해주세요.")
+
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO children (user_id, name, created_at) VALUES (?, ?, ?)",
+            (user["id"], name, now_iso()),
+        )
+        row = conn.execute("SELECT * FROM children WHERE id = ?", (cur.lastrowid,)).fetchone()
+
+    return _child_json(row)
+
+
+# ---------------------------------------------------------------------------
 # YOLO 분석
 # ---------------------------------------------------------------------------
 def _score_from_detections(cavity_count: int) -> int:
@@ -198,7 +235,11 @@ def _score_from_detections(cavity_count: int) -> int:
 
 
 @app.post("/analyze")
-async def analyze(file: UploadFile = File(...), user=Depends(optional_user)):
+async def analyze(
+    file: UploadFile = File(...),
+    child_id: int | None = Form(None),
+    user=Depends(optional_user),
+):
     if model is None:
         raise HTTPException(status_code=503, detail="모델이 아직 로드되지 않았습니다.")
 
@@ -236,10 +277,10 @@ async def analyze(file: UploadFile = File(...), user=Depends(optional_user)):
             conn.execute(
                 """
                 INSERT INTO analysis_records
-                    (user_id, created_at, cavity_count, normal_count, total_detections, score, detections_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (user_id, child_id, created_at, cavity_count, normal_count, total_detections, score, detections_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (user["id"], now_iso(), cavity_count, normal_count, len(detections), score, json.dumps(detections)),
+                (user["id"], child_id, now_iso(), cavity_count, normal_count, len(detections), score, json.dumps(detections)),
             )
 
     return {
@@ -285,15 +326,24 @@ def _calc_streak(created_ats: list[str]) -> int:
 
 
 @app.get("/api/history")
-def history(user=Depends(require_user)):
+def history(child_id: int | None = Query(None), user=Depends(require_user)):
     with get_conn() as conn:
-        rows = conn.execute(
-            """
-            SELECT id, created_at, cavity_count, normal_count, total_detections, score
-            FROM analysis_records WHERE user_id = ? ORDER BY created_at DESC
-            """,
-            (user["id"],),
-        ).fetchall()
+        if child_id is not None:
+            rows = conn.execute(
+                """
+                SELECT id, child_id, created_at, cavity_count, normal_count, total_detections, score
+                FROM analysis_records WHERE user_id = ? AND child_id = ? ORDER BY created_at DESC
+                """,
+                (user["id"], child_id),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT id, child_id, created_at, cavity_count, normal_count, total_detections, score
+                FROM analysis_records WHERE user_id = ? ORDER BY created_at DESC
+                """,
+                (user["id"],),
+            ).fetchall()
     return {"records": [dict(row) for row in rows]}
 
 
