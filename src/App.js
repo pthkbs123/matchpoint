@@ -10,14 +10,17 @@ import LoginPage from './pages/LoginPage';
 import SignUpPage from './pages/SignUpPage';
 import MyPage from './pages/MyPage';
 import FindAccountPage from './pages/FindAccountPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 
 function App() {
   const savedSession = (() => {
     const value = sessionStorage.getItem('smileguard-session') || localStorage.getItem('smileguard-session');
     try { return value ? JSON.parse(value) : null; } catch { return null; }
   })();
+  const resetToken = new URLSearchParams(window.location.search).get('resetToken');
   const [session, setSession] = useState(savedSession);
   const [page, setPage] = useState(() => {
+    if (resetToken) return 'reset-password';
     return savedSession ? 'home' : 'login';
   });
   const [capturedBlob, setCapturedBlob] = useState(null);
@@ -59,6 +62,7 @@ function App() {
     signup: <SignUpPage onNavigate={setPage} />,
     'find-id': <FindAccountPage onNavigate={setPage} initialTab="id" />,
     'find-password': <FindAccountPage onNavigate={setPage} initialTab="password" />,
+    'reset-password': <ResetPasswordPage onNavigate={setPage} token={resetToken} />,
     home: <MainPage onNavigate={setPage} user={session?.user} token={session?.accessToken} />,
     mypage: <MyPage onNavigate={setPage} user={session?.user} token={session?.accessToken} onLogout={handleLogout} />,
     camera: <CameraPage onNavigate={setPage} onCapture={handleCapture} />,

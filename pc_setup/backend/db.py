@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT,
     name TEXT NOT NULL,
+    birthplace TEXT,
     picture TEXT,
     provider TEXT NOT NULL DEFAULT 'email',
     created_at TEXT NOT NULL
@@ -21,6 +22,14 @@ CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id),
     created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS password_resets (
+    token TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS analysis_records (
@@ -55,3 +64,12 @@ def get_conn():
 def init_db():
     with get_conn() as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
+
+
+def _migrate(conn):
+    # 이미 만들어진 DB 파일에는 CREATE TABLE IF NOT EXISTS가 새 컬럼을 추가해주지 않으므로
+    # 기존 users 테이블에 birthplace 컬럼이 없으면 여기서 추가해준다.
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+    if "birthplace" not in columns:
+        conn.execute("ALTER TABLE users ADD COLUMN birthplace TEXT")

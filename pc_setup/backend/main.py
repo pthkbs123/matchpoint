@@ -10,14 +10,29 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 from pydantic import BaseModel
 from ultralytics import YOLO
 
-from auth import create_session, hash_password, optional_user, require_user, verify_password
+from auth import (
+    create_password_reset_token,
+    create_session,
+    get_valid_password_reset,
+    hash_password,
+    mark_password_reset_used,
+    mask_email,
+    optional_user,
+    require_user,
+    verify_password,
+)
 from db import get_conn, init_db, now_iso
+from mailer import send_reset_password_email
 
 MODEL_PATH = Path(__file__).parent / "model" / "best.pt"
 
@@ -60,6 +75,7 @@ class EmailAuthRequest(BaseModel):
     email: str
     password: str
     name: str | None = None
+    birthplace: str | None = None
 
 
 def _user_json(user_row) -> dict:
@@ -84,8 +100,8 @@ def auth_email(payload: EmailAuthRequest):
             # 계정이 없으면 최초 로그인 시점에 자동으로 만들어준다 (데모용 간이 가입)
             name = payload.name or email.split("@")[0]
             cur = conn.execute(
-                "INSERT INTO users (email, password_hash, name, picture, provider, created_at) VALUES (?, ?, ?, ?, 'email', ?)",
-                (email, hash_password(payload.password), name, None, now_iso()),
+                "INSERT INTO users (email, password_hash, name, birthplace, picture, provider, created_at) VALUES (?, ?, ?, ?, ?, 'email', ?)",
+                (email, hash_password(payload.password), name, payload.birthplace, None, now_iso()),
             )
             row = conn.execute("SELECT * FROM users WHERE id = ?", (cur.lastrowid,)).fetchone()
         elif not row["password_hash"] or not verify_password(payload.password, row["password_hash"]):
@@ -104,6 +120,73 @@ def auth_kakao():
 @app.post("/api/auth/google")
 def auth_google():
     raise HTTPException(status_code=501, detail="구글 로그인은 아직 준비 중이에요.")
+
+
+class FindIdRequest(BaseModel):
+    name: str
+    birthplace: str
+
+
+@app.post("/api/auth/find-id")
+def find_id(payload: FindIdRequest):
+    name = payload.name.strip()
+    birthplace = payload.birthplace.strip()
+    if not name or not birthplace:
+        raise HTTPException(status_code=400, detail="이름과 태어난 지역을 입력해주세요.")
+
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE name = ? AND birthplace = ?", (name, birthplace)
+        ).fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="일치하는 계정을 찾을 수 없어요.")
+
+    return {"maskedId": mask_email(row["email"])}
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+
+
+@app.post("/api/auth/reset-password/request")
+def reset_password_request(payload: ResetPasswordRequest):
+    email = payload.email.strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="이메일을 입력해주세요.")
+
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="등록된 이메일을 찾을 수 없어요.")
+        token = create_password_reset_token(conn, row["id"])
+
+    send_reset_password_email(email, token)
+    return {"sent": True}
+
+
+class ResetPasswordConfirmRequest(BaseModel):
+    token: str
+    password: str
+
+
+@app.post("/api/auth/reset-password/confirm")
+def reset_password_confirm(payload: ResetPasswordConfirmRequest):
+    if not payload.password or len(payload.password) < 8:
+        raise HTTPException(status_code=400, detail="비밀번호는 8자 이상이어야 해요.")
+
+    with get_conn() as conn:
+        reset_row = get_valid_password_reset(conn, payload.token)
+        if reset_row is None:
+            raise HTTPException(status_code=400, detail="유효하지 않거나 만료된 링크예요.")
+
+        conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (hash_password(payload.password), reset_row["user_id"]),
+        )
+        mark_password_reset_used(conn, payload.token)
+
+    return {"success": True}
 
 
 # ---------------------------------------------------------------------------

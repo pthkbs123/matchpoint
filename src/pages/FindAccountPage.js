@@ -18,7 +18,7 @@ async function requestApi(path, payload) {
 }
 
 function FindIdForm() {
-  const [form, setForm] = useState({ name: '', email: '' });
+  const [form, setForm] = useState({ name: '', birthplace: '' });
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -33,8 +33,8 @@ function FindIdForm() {
     setError('');
     setResult(null);
 
-    if (!form.name.trim() || !form.email.trim()) {
-      setError('이름과 이메일을 모두 입력해 주세요.');
+    if (!form.name.trim() || !form.birthplace.trim()) {
+      setError('이름과 태어난 지역을 모두 입력해 주세요.');
       return;
     }
 
@@ -49,33 +49,35 @@ function FindIdForm() {
     }
   };
 
-  if (result) {
-    return (
-      <div className="find-result">
-        <p className="find-result-label">가입하신 아이디예요</p>
-        <p className="find-result-value">{result}</p>
-        <button type="button" className="login-button" onClick={() => setResult(null)}>
-          다시 찾기
-        </button>
-      </div>
-    );
-  }
-
   return (
-    <form className="login-form" onSubmit={handleSubmit} noValidate>
-      <label className="input-group">
-        <span>이름</span>
-        <input name="name" type="text" value={form.name} onChange={handleChange} placeholder="가입 시 등록한 이름" autoComplete="name" />
-      </label>
-      <label className="input-group">
-        <span>이메일</span>
-        <input name="email" type="email" value={form.email} onChange={handleChange} placeholder="가입 시 등록한 이메일" autoComplete="email" />
-      </label>
-      {error && <p className="social-error" role="alert">{error}</p>}
-      <button type="submit" className="login-button" disabled={isSubmitting}>
-        {isSubmitting ? '확인 중...' : '아이디 찾기'}
-      </button>
-    </form>
+    <>
+      <form className="login-form" onSubmit={handleSubmit} noValidate>
+        <label className="input-group">
+          <span>이름</span>
+          <input name="name" type="text" value={form.name} onChange={handleChange} placeholder="가입 시 등록한 이름" autoComplete="name" />
+        </label>
+        <label className="input-group">
+          <span>내가 태어난 지역은?</span>
+          <input name="birthplace" type="text" value={form.birthplace} onChange={handleChange} placeholder="예: 서울특별시" autoComplete="off" />
+        </label>
+        {error && <p className="social-error" role="alert">{error}</p>}
+        <button type="submit" className="login-button" disabled={isSubmitting}>
+          {isSubmitting ? '확인 중...' : '아이디 찾기'}
+        </button>
+      </form>
+
+      {result && (
+        <div className="popup-overlay" role="dialog" aria-modal="true" onClick={() => setResult(null)}>
+          <div className="popup-card" onClick={(event) => event.stopPropagation()}>
+            <p className="find-result-label">가입하신 아이디예요</p>
+            <p className="find-result-value">{result}</p>
+            <button type="button" className="login-button" onClick={() => setResult(null)}>
+              확인
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
