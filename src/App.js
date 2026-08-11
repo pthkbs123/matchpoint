@@ -8,6 +8,8 @@ import ResultPage from './pages/ResultPage';
 import ReportPage from './pages/ReportPage';
 import LoginPage from './pages/LoginPage';
 import MyPage from './pages/MyPage';
+import NotificationPage from './pages/NotificationPage';
+import ProfilePage from './pages/ProfilePage';
 
 function App() {
   const savedSession = (() => {
@@ -16,7 +18,7 @@ function App() {
   })();
   const [session, setSession] = useState(savedSession);
   const [page, setPage] = useState(() => {
-    return savedSession ? 'home' : 'login';
+    return 'notification';
   });
   const [capturedBlob, setCapturedBlob] = useState(null);
   const [capturedUrl, setCapturedUrl] = useState(null);
@@ -56,6 +58,8 @@ function App() {
     login: <LoginPage onLogin={handleLogin} />,
     home: <MainPage onNavigate={setPage} user={session?.user} token={session?.accessToken} />,
     mypage: <MyPage onNavigate={setPage} user={session?.user} token={session?.accessToken} onLogout={handleLogout} />,
+    notification: <NotificationPage onNavigate={setPage} />,
+    profile: <ProfilePage onNavigate={setPage} />,
     camera: <CameraPage onNavigate={setPage} onCapture={handleCapture} />,
     preview: <CapturePreviewPage onNavigate={setPage} capturedUrl={capturedUrl} />,
     analyzing: (

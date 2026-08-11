@@ -17,9 +17,9 @@ function MyPage({ onNavigate, onLogout, user, token }) {
   }, [token]);
 
   const menuItems = [
-    { icon: '◎', title: '내 정보 관리', description: '이름과 프로필을 수정해요' },
+    { icon: '👤', title: '내 정보 관리', description: '이름과 프로필을 수정해요', action: () => onNavigate('profile') },
     { icon: '◇', title: '기준값 관리', description: '구강 분석 기준값을 확인하고 재설정해요' },
-    { icon: '♧', title: '알림 설정', description: '주간 리포트와 주의 알림을 관리해요' },
+    { icon: '⚙️', title: '알림 설정', description: '주간 리포트와 주의 알림을 관리해요', action: () => onNavigate('notification') },
   ];
 
   return (
@@ -53,7 +53,7 @@ function MyPage({ onNavigate, onLogout, user, token }) {
 
         <div className="mypage-menu">
           {menuItems.map((item) => (
-            <button type="button" className="mypage-menu-item" key={item.title}>
+            <button type="button" className="mypage-menu-item" key={item.title} onClick={item.action}>
               <span className="mypage-menu-icon">{item.icon}</span>
               <span className="mypage-menu-copy">
                 <strong>{item.title}</strong>
