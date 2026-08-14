@@ -26,6 +26,13 @@ yarn-error.log*
 # YOLO local training (pc_setup)
 /pc_setup/venv/
 /pc_setup/dataset_yolo/
+/pc_setup/dataset_runA/
+/pc_setup/dataset_runB/
+/pc_setup/dataset_runC/
+/pc_setup/dataset_runC.zip
+/pc_setup/dataset_runD/
+/pc_setup/dataset_runD.zip
+/pc_setup/dataset_dentalv7_converted/
 /pc_setup/**/__pycache__/
 /pc_setup/*.pt
 /pc_setup/backend/*.db

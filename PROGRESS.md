@@ -1,0 +1,60 @@
+# 충치 탐지 모델 학습 — 진행 상황 (2026-08-14 기준)
+
+새 컴퓨터/새 Claude Code 세션에서 이 프로젝트를 이어갈 때 이 파일부터 읽으면 맥락 파악이 됩니다.
+
+## 프로젝트 개요
+- **SmileGuard / MatchPoint**: 스마트폰으로 치아 촬영 → YOLOv8로 충치(cavity) 탐지 → 결과/리포트를 보여주는 앱
+- 프론트: React (`src/`), 백엔드: FastAPI (`pc_setup/backend/`, 포트 8000, 로그인+YOLO 추론+이력조회 통합)
+- 모델: YOLOv8n, **2클래스만 사용 (`0=cavity`, `1=normal`)** — 충치 있음/없음만 판별하면 되는 프로젝트라 세부 단계 분류는 안 함
+- GitHub: origin=`pthkbs123/matchpoint`, upstream=`yuly0531/matchpoint`
+
+## 왜 로컬이 아니라 Kaggle 클라우드에서 학습하나
+- 이 PC(학교 컴퓨터)는 GPU가 GTX 1660 하나뿐이고 내장그래픽(iGPU)이 없어서, 화면 출력과 학습 연산을 같은 GPU가 담당함
+- 로컬에서 학습 돌리면 WDDM/TDR 충돌로 화면이 완전히 멈추는 문제 발생 (2시간 방치해도 안 풀림 → 강제 재부팅 필요했음)
+- 학교 컴퓨터라 재부팅하면 상태가 초기화돼서 WSL2 같은 재부팅 필요한 해결책도 못 씀
+- → **Kaggle Notebook의 무료 GPU(T4 x2)에서 학습하는 방식으로 전환**. 로컬 PC는 "데이터셋 가공 + Kaggle 업로드"만 담당
+
+## Kaggle 계정/리소스
+- Kaggle 데이터셋: `hanium_dataset` (소유자: pthkbs) — 여러 버전(New Version)으로 계속 갱신 중
+- Kaggle 노트북: `hanium yolov8 notebook`
+- 무료 플랜 GPU 쿼터: 주 30시간, 롤링(rolling) 방식으로 매일 조금씩 복구됨. `Your Kaggle Quota` 패널에서 확인 가능
+- **주의**: `Save & Run All`(커밋)은 노트북을 처음부터 다시 통째로 실행하는 방식이라 비효율적이지만, 브라우저/컴퓨터를 꺼도 안전하게 백그라운드로 도는 유일한 방법이라 이걸 씀. Draft(인터랙티브) 세션은 브라우저 닫으면 끊길 위험 있음
+
+## 데이터 파이프라인 (로컬, `pc_setup/`)
+원본 공개 데이터셋(Roboflow 등)을 받아서 `D:\pth\dataset\` 폴더에 모아두고, 로컬 파이썬 스크립트로 **cavity/normal 2클래스 YOLO bbox 형식**으로 변환·병합 → zip → Kaggle 업로드.
+
+### 완료된 병합: `dataset_runC`
+`build_dataset_runC.py` (구버전 `build_datasets.py`가 runA/runB 만든 걸 이어받음)
+- 원본 `dataset_yolo` (418장, 이미 cavity/normal)
+- Caries Classification ICDAS II v3 (7단계 → 0=Sound만 normal, 나머지 cavity로 재매핑)
+- Caries_Dataset (분류 폴더 구조, bbox 없어서 이미지 전체를 박스로 사용)
+- Dental.v1-dentalai (OBB 형식, Caries/Cavity→cavity, Tooth→normal, Crack 제외)
+- **결과: train 9,203 / valid 945 / test 688장**
+- **Kaggle 학습 완료**: 34 epoch에서 조기종료(patience=20), best는 14 epoch, mAP50=0.598, mAP50-95=0.404
+
+### 완료된 병합: `dataset_runD` (재정의된 버전, 처음 만든 runD는 삭제하고 다시 만듦)
+`build_dataset_runD.py`
+- `dataset_runC` 전체
+- `caries_segmentation_merges_sec.v1i.yolov8-obb` (OBB, Dental.v1-dentalai와 같은 클래스체계: Caries/Cavity→cavity, Tooth→normal, Crack 제외)
+- `data fix.v1i.yolov8` (클래스명이 그냥 '0','1','2'라 의미 불명확했음 → 샘플 이미지 시각화해서 사용자가 직접 판별: **파란색(class 2)=karies=cavity만 사용**, 나머지(치석/잇몸염 추정)는 제외, cavity 라벨이 없는 이미지는 통째로 제외)
+- `ToothCariesAI.v1i.yolov8` (단일 클래스 `KARIES` → 그대로 cavity, 깔끔함)
+- `dataset_dentalv7_converted` (`convert_dentalv7.py`로 별도 변환해둔 것) ← `dental.v7i.yolov8` 원본은 21클래스 스페인어+폴리곤 세그멘테이션 형식. 충치 세부유형 9개(caries, caries cervical 등)→cavity, `tooth`→normal, 나머지 11개(bridge/crown/root canal 등 무관한 소견)는 제외. cavity/normal 라벨이 하나도 없는 이미지는 통째로 제외 (11,658장 중 4,729장만 사용 가능했음)
+- **결과: train 28,898 / valid 6,059 / test 3,261장**
+- **상태: Kaggle에서 학습 진행 중** (Save & Run All로 커밋해서 백그라운드로 돎, `cavity_train_runD`라는 이름으로 저장됨). 세션 종료 시점엔 아직 Epoch 1 근처 시작 단계였음
+
+## Kaggle 노트북 학습 스크립트 방식
+- `kaggle_train_runC.py`, `kaggle_train_runD.py` — Kaggle 노트북 셀에 붙여넣는 스크립트
+- **경로를 하드코딩하지 않고 `/kaggle/input` 전체에서 `rglob`으로 `data.yaml`/`best.pt` 자동 탐색** (Kaggle이 데이터셋 마운트할 때 폴더를 이중으로 감싸는 경우가 있어서 하드코딩하면 자꾸 에러 났음, 자동탐색으로 해결)
+- **매 라운드마다 직전 라운드의 `best.pt`를 이어받아 `model.train()` 다시 호출하는 방식** — 진짜 resume(중단 지점부터 재개)이 아니라 그 가중치로 처음부터 다시 학습하는 것이므로 매번 실제 GPU 시간을 다 씀 (주의)
+
+## 다음에 할 일 (우선순위 순)
+1. **`dataset_runD` 학습 끝나는지 확인** — 9시간 세션 제한 안에 못 끝나면 `last.pt`를 `best.pt`로 이름 바꿔서 써도 됨
+2. 나온 `best.pt`를 Kaggle `hanium_dataset`에 `+ New Version`으로 교체 업로드
+3. 필요하면 그 `best.pt`를 로컬 `pc_setup/backend/model/best.pt`에도 반영 (실제 앱 서버에서 쓰려면 필요)
+4. 사용자가 데이터셋을 계속 찾아오는 중 — **병합(runE 등)은 사용자가 명시적으로 "만들어"라고 지시할 때만 진행할 것** (토큰 절약을 위해 확인만 먼저 하고 대기하기로 합의됨)
+5. (로드맵, 아직 미착수) 사용자가 로컬 PC 의존도를 더 줄이고 싶어함 — 지금은 "로컬에서 병합 스크립트 실행 → zip → Kaggle 업로드" 흐름인데, 이걸 Kaggle 노트북 안에서 직접 병합까지 하도록 바꾸면 로컬 PC는 "새 원본 데이터셋 다운받아서 Kaggle에 업로드"만 하면 되므로 어느 컴퓨터에서 작업하든 상관없어짐. 사용자가 원하면 이 방식으로 전환 가능
+
+## 알아둘 것 (함정 주의)
+- `D:\pth\dataset\` 로 원본 데이터셋들을 사용자가 정리해서 옮겨놨음. **`build_datasets.py`(구버전, runA/runB용)와 `build_dataset_runC.py`는 아직 예전 경로(`D:\pth` 바로 아래)를 참조하고 있어서, 지금 다시 실행하면 경로가 안 맞아 에러남.** `build_dataset_runD.py`(현재 버전)만 `D:\pth\dataset\`을 정확히 참조하도록 고쳐져 있음. runA/runB/runC는 이미 결과물이 로컬에 폴더로 존재하니 재실행할 필요는 없음
+- `dataset_runA`, `dataset_runB`, `dataset_runC`, `dataset_runD`, `dataset_dentalv7_converted` 폴더와 그 zip 파일들은 용량이 커서 **git에 커밋 안 함** (`.gitignore`에 추가해둠). 새 PC에서 이어가려면 이 스크립트들을 다시 돌려서 로컬에 재생성하거나, Kaggle에 이미 업로드된 버전을 그대로 활용하면 됨 (Kaggle 쪽은 클라우드라 이미 다 있음)
+- `pc_setup/backend/model/best.pt`는 git에 커밋되어 있는 초기 버전 (Kaggle 학습 결과가 아직 반영 안 됨)
