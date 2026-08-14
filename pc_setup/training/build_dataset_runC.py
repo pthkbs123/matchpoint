@@ -12,12 +12,13 @@ Run C: dataset_runB 전체 + 데이터셋3(Dental.v1-dentalai, OBB 형식, 6418�
 import shutil
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent          # pc_setup/
-BASE = ROOT.parent                                # matchpoint_tmp/
-DOWNLOADS = BASE.parent                           # D:\pth
+PC_SETUP = Path(__file__).resolve().parent.parent  # pc_setup/ (이 파일은 pc_setup/training/ 안에 있음)
+BASE = PC_SETUP.parent                              # matchpoint_tmp/
+DOWNLOADS = BASE.parent                             # D:\pth
+DATASET_DIR = DOWNLOADS / "dataset"                 # D:\pth\dataset
 
-RUN_B = ROOT / "dataset_runB"
-DS3 = DOWNLOADS / "Dental.v1-dentalai.yolov8-obb"
+RUN_B = PC_SETUP / "dataset_runB"
+DS3 = DATASET_DIR / "Dental.v1-dentalai.yolov8-obb"
 
 CLASSES = ["cavity", "normal"]  # 0=cavity, 1=normal (기존과 동일)
 
@@ -95,7 +96,7 @@ def add_ds3(src_root: Path, dst_root: Path):
 
 
 def main():
-    run_c = ROOT / "dataset_runC"
+    run_c = PC_SETUP / "dataset_runC"
     if run_c.exists():
         shutil.rmtree(run_c)
     ensure_dirs(run_c)

@@ -14,10 +14,10 @@ cavity/normal 2클래스 bbox 형식으로 변환만 해두는 스크립트.
 import shutil
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent          # pc_setup/
-DOWNLOADS = ROOT.parent.parent                    # D:\pth
+PC_SETUP = Path(__file__).resolve().parent.parent  # pc_setup/ (이 파일은 pc_setup/training/ 안에 있음)
+DOWNLOADS = PC_SETUP.parent.parent                  # D:\pth
 SRC = DOWNLOADS / "dataset" / "dental.v7i.yolov8"
-DST = ROOT / "dataset_dentalv7_converted"
+DST = PC_SETUP / "dataset_dentalv7_converted"
 
 CLASSES = ["cavity", "normal"]
 

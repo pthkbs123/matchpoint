@@ -16,13 +16,14 @@ from pathlib import Path
 
 random.seed(42)
 
-ROOT = Path(__file__).resolve().parent          # pc_setup/
-BASE = ROOT.parent                                # D:\pth\matchpoint_tmp -> D:\pth 아래 데이터셋들은 두 단계 위(D:\pth)에 있음
-DOWNLOADS = BASE.parent                           # D:\pth
+PC_SETUP = Path(__file__).resolve().parent.parent  # pc_setup/ (이 파일은 pc_setup/training/ 안에 있음)
+BASE = PC_SETUP.parent                              # matchpoint_tmp/
+DOWNLOADS = BASE.parent                             # D:\pth
+DATASET_DIR = DOWNLOADS / "dataset"                 # D:\pth\dataset (사용자가 원본 데이터셋들을 정리해둔 폴더)
 
-ORIG = ROOT / "dataset_yolo"
-DS1 = DOWNLOADS / "Caries Classification ICDAS II.v3i.yolov8"
-DS2 = DOWNLOADS / "Caries_Dataset"
+ORIG = PC_SETUP / "dataset_yolo"
+DS1 = DATASET_DIR / "Caries Classification ICDAS II.v3i.yolov8"
+DS2 = DATASET_DIR / "Caries_Dataset"
 
 CLASSES = ["cavity", "normal"]  # 0=cavity, 1=normal (기존과 동일)
 
@@ -109,7 +110,7 @@ def add_ds2_whole_image_boxes(src_root: Path, dst_root: Path, split_ratio=(0.8, 
 
 def main():
     # ---- Run A: dataset_yolo + dataset1(remap) ----
-    run_a = ROOT / "dataset_runA"
+    run_a = PC_SETUP / "dataset_runA"
     if run_a.exists():
         shutil.rmtree(run_a)
     ensure_dirs(run_a)
@@ -118,7 +119,7 @@ def main():
     write_yaml(run_a)
 
     # ---- Run B: Run A 전체 복사 + dataset2(whole-image box) 추가 ----
-    run_b = ROOT / "dataset_runB"
+    run_b = PC_SETUP / "dataset_runB"
     if run_b.exists():
         shutil.rmtree(run_b)
     shutil.copytree(run_a, run_b)

@@ -7,19 +7,23 @@ Run B: 기존 best.pt를 베이스로, dataset_runA 전체 + 데이터셋2(Carie
     python train_runB.py
 학습 끝나면 runs/detect/cavity_train_runB/weights/best.pt 생성.
 """
+from pathlib import Path
+
 from ultralytics import YOLO
+
+PC_SETUP = Path(__file__).resolve().parent.parent  # pc_setup/ (이 파일은 pc_setup/training/ 안에 있음)
 
 
 def main():
-    model = YOLO("backend/model/best.pt")
+    model = YOLO(str(PC_SETUP / "backend" / "model" / "best.pt"))
 
     model.train(
-        data="dataset_runB/data.yaml",
+        data=str(PC_SETUP / "dataset_runB" / "data.yaml"),
         epochs=100,
         imgsz=640,
         batch=8,
         patience=20,
-        project="runs/detect",
+        project=str(PC_SETUP / "runs" / "detect"),
         name="cavity_train_runB",
         device=0,
     )

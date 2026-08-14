@@ -16,16 +16,16 @@ Run D (재정의): dataset_runC 전체 + runC 이후 찾은 데이터셋 전부�
 import shutil
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent          # pc_setup/
-BASE = ROOT.parent                                # matchpoint_tmp/
-DOWNLOADS = BASE.parent                           # D:\pth
-DATASET_DIR = DOWNLOADS / "dataset"               # 사용자가 정리한 폴더
+PC_SETUP = Path(__file__).resolve().parent.parent  # pc_setup/ (이 파일은 pc_setup/training/ 안에 있음)
+BASE = PC_SETUP.parent                              # matchpoint_tmp/
+DOWNLOADS = BASE.parent                             # D:\pth
+DATASET_DIR = DOWNLOADS / "dataset"                 # 사용자가 정리한 폴더
 
-RUN_C = ROOT / "dataset_runC"
+RUN_C = PC_SETUP / "dataset_runC"
 DS_MERGES_SEC = DATASET_DIR / "caries_segmentation_merges_sec.v1i.yolov8-obb"
 DS_DATA_FIX = DATASET_DIR / "data fix.v1i.yolov8"
 DS_TOOTHCARIES = DATASET_DIR / "ToothCariesAI.v1i.yolov8"
-DS_DENTALV7 = ROOT / "dataset_dentalv7_converted"
+DS_DENTALV7 = PC_SETUP / "dataset_dentalv7_converted"
 
 CLASSES = ["cavity", "normal"]  # 0=cavity, 1=normal
 
@@ -158,7 +158,7 @@ def add_toothcaries(src_root: Path, dst_root: Path, prefix: str = "ds_toothcarie
 
 
 def main():
-    run_d = ROOT / "dataset_runD"
+    run_d = PC_SETUP / "dataset_runD"
     if run_d.exists():
         shutil.rmtree(run_d)
     ensure_dirs(run_d)

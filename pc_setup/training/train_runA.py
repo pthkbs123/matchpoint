@@ -7,19 +7,23 @@ Run A: 기존 best.pt를 베이스로, dataset_yolo(418) + 데이터셋1(ICDAS 7
     python train_runA.py
 학습 끝나면 runs/detect/cavity_train_runA/weights/best.pt 생성.
 """
+from pathlib import Path
+
 from ultralytics import YOLO
+
+PC_SETUP = Path(__file__).resolve().parent.parent  # pc_setup/ (이 파일은 pc_setup/training/ 안에 있음)
 
 
 def main():
-    model = YOLO("backend/model/best.pt")  # 처음부터가 아니라 기존 학습 결과에서 이어서
+    model = YOLO(str(PC_SETUP / "backend" / "model" / "best.pt"))  # 처음부터가 아니라 기존 학습 결과에서 이어서
 
     model.train(
-        data="dataset_runA/data.yaml",
+        data=str(PC_SETUP / "dataset_runA" / "data.yaml"),
         epochs=100,
         imgsz=640,
         batch=8,
         patience=20,
-        project="runs/detect",
+        project=str(PC_SETUP / "runs" / "detect"),
         name="cavity_train_runA",
         device=0,
     )
