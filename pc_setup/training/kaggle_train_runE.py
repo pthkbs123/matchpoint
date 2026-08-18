@@ -35,7 +35,7 @@ else:
 
 model.train(
     data=str(DATA_YAML),
-    epochs=100,
+    epochs=120,
     imgsz=640,
     batch=64,
     patience=20,
