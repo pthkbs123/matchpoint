@@ -1,6 +1,21 @@
-# 충치 탐지 모델 학습 — 진행 상황 (2026-08-14 기준)
+# 충치 탐지 모델 학습 — 진행 상황 (2026-08-18 갱신)
 
 새 컴퓨터/새 Claude Code 세션에서 이 프로젝트를 이어갈 때 이 파일부터 읽으면 맥락 파악이 됩니다.
+
+## PWA 구현 (2026-08-18, 로컬 커밋만 완료 — origin에 아직 push 안 함)
+- **커밋**: `ae301fe` "PWA 지원 추가: 매니페스트, 서비스 워커, 설치 가능성" (로컬 main 브랜치, origin/main엔 미반영)
+- **왜 아직 안 올렸나**: 사용자가 좀 더 확인해볼 게 있어서 일부러 push 보류함. 새 세션에서 이어갈 때 이 커밋이 origin에 없다는 점 주의 — 다른 컴퓨터에서 작업 이어가려면 이 로컬 저장소(`D:\pth\matchpoint_tmp`)의 커밋을 가져와야 함
+- **변경 내용**:
+  - `public/manifest.json`: 앱 이름 "SmileGuard - 충치 탐지", 테마색 `#0f172a`, 아이콘에 `purpose: any` 추가, `scope`/`orientation` 추가
+  - `public/index.html`: title/description/theme-color meta 반영
+  - `public/service-worker.js` (신규): 앱 셸 캐싱(cache-first), `/api/`·`/analyze` 요청은 캐싱 제외(백엔드는 항상 최신 응답)
+  - `src/serviceWorkerRegistration.js` (신규): **프로덕션 빌드에서만** 서비스 워커 등록 (localhost 개발 중엔 캐시 혼선 방지 위해 미등록)
+  - `src/index.js`: `serviceWorkerRegistration.register()` 호출 연결
+  - `start-dev.cmd` (신규): Node.js PATH 잡고 `npm start` 실행하는 배치 파일
+- **Node.js 설치 확인**: `v24.19.0`, npm `11.17.0` 정상 설치됨 (학교 컴퓨터 재부팅 후에도 유지됨 — 재부팅해도 초기화 안 되는 걸 보니 시스템 전역 설치였던 듯)
+- **테스트 완료**: `npm run build` 정상 컴파일 → `npx serve -s build`로 정적 서빙 → 실제 Edge 브라우저(일반 창)에서 서비스 워커 `activated and is running` 확인, 설치 프롬프트("SmileGuard - 충치 탐지 앱 설치") 정상 노출 확인
+- **알아둘 것**: Claude Code 인앱 프리뷰(Browser pane, 샌드박스 환경)에서는 서비스 워커 `register()`가 "unknown error occurred when fetching the script"로 실패함 — 파일 자체나 서버 문제 아니고 프리뷰 샌드박스 제약으로 추정됨. PWA 관련 테스트는 실제 브라우저(Edge/Chrome)에서 해야 신뢰 가능
+- **다음에 할 일**: 사용자가 추가로 확인할 부분 남음 (구체적으로 뭘 더 볼 건지는 미정 — 다음 세션에서 사용자에게 확인). 확인 끝나면 origin에 push
 
 ## 프로젝트 개요
 - **SmileGuard / MatchPoint**: 스마트폰으로 치아 촬영 → YOLOv8로 충치(cavity) 탐지 → 결과/리포트를 보여주는 앱
