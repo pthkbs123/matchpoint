@@ -45,16 +45,28 @@
 - **결과: mAP50=0.698, mAP50-95=0.476, precision=0.660, recall=0.676** (runC 대비 mAP50 +0.100, mAP50-95 +0.072 — 데이터 4배 확장의 효과 확인됨)
 - **로컬 반영 완료**: `pc_setup/backend/model/best.pt`를 이 runD 결과로 교체함 (2026-08-18)
 
+### 완료된 병합: `dataset_runE`
+`pc_setup/training/build_dataset_runE.py`
+- `dataset_runD` 전체
+- `DentalCaries.v2i.yolov8` (Roboflow, 4,663장, axis-aligned, 클래스 0=Caries/1=Cavity→cavity, 2=Tooth→normal, 3=Crack 제외 — `data.yaml`의 names 필드가 깨져 나와서 이미지에 박스 그려서 직접 확인한 값. **원본 zip에 train만 있고 valid/test가 없어서 전부 train으로 들어감**)
+- `caries detection.v1i.yolov8` (Roboflow, 원래 2,495장인데 `DentalCaries.v2i`와 md5 기준 1,996장(80%)이 완전히 동일한 이미지라 **중복 제거하고 499장만 사용**. 클래스 0=Caries/1=Cavity→cavity, 3=Tooth→normal, 2=Crack 제외)
+- Zenodo `Benchmarking Dataset` (6,266장 중 **yolo 라벨 파일이 있고 내용도 있는 2,164장만 사용**. 나머지 4,102장은 라벨 파일 자체가 없어서 정상인지 라벨 누락인지 알 수 없어 제외. 클래스 0/1(유치/영구치 충치) 모두 → cavity. **이 소스는 normal 기여가 전혀 없음**, 충치 있는 사진만 있어서)
+- **결과: train 35,690 / valid 6,315 / test 3,539장**
+- **Kaggle 아직 학습 안 함** (`dataset_runE.zip` 로컬 `pc_setup/`에 생성 완료, Kaggle 업로드 대기 중)
+
 ## Kaggle 노트북 학습 스크립트 방식
 - `pc_setup/training/kaggle_train_runC.py`, `pc_setup/training/kaggle_train_runD.py` — Kaggle 노트북 셀에 붙여넣는 스크립트
 - **경로를 하드코딩하지 않고 `/kaggle/input` 전체에서 `rglob`으로 `data.yaml`/`best.pt` 자동 탐색** (Kaggle이 데이터셋 마운트할 때 폴더를 이중으로 감싸는 경우가 있어서 하드코딩하면 자꾸 에러 났음, 자동탐색으로 해결)
 - **매 라운드마다 직전 라운드의 `best.pt`를 이어받아 `model.train()` 다시 호출하는 방식** — 진짜 resume(중단 지점부터 재개)이 아니라 그 가중치로 처음부터 다시 학습하는 것이므로 매번 실제 GPU 시간을 다 씀 (주의)
 
 ## 다음에 할 일 (우선순위 순)
-1. (선택) 새 `best.pt`를 Kaggle `hanium_dataset`에 `+ New Version`으로 교체 업로드 — 아직 안 함
-2. 사용자가 데이터셋을 계속 찾아오는 중 — **병합(runE 등)은 사용자가 명시적으로 "만들어"라고 지시할 때만 진행할 것** (토큰 절약을 위해 확인만 먼저 하고 대기하기로 합의됨)
-3. (로드맵, 아직 미착수) 사용자가 로컬 PC 의존도를 더 줄이고 싶어함 — 지금은 "로컬에서 병합 스크립트 실행 → zip → Kaggle 업로드" 흐름인데, 이걸 Kaggle 노트북 안에서 직접 병합까지 하도록 바꾸면 로컬 PC는 "새 원본 데이터셋 다운받아서 Kaggle에 업로드"만 하면 되므로 어느 컴퓨터에서 작업하든 상관없어짐. 사용자가 원하면 이 방식으로 전환 가능
-4. runD가 조기종료 없이 100 epoch 끝까지 개선 추세였으므로, 여유 되면 epoch을 늘려서(`patience` 유지, `epochs` 상향) 추가 학습해보는 것도 고려해볼 만함
+1. **`dataset_runE.zip`을 Kaggle `hanium_dataset`에 `+ New Version`으로 업로드** — `pc_setup/dataset_runE.zip` (1.6GB) 로컬에 생성 완료, 아직 Kaggle 업로드 전
+2. Kaggle에서 `pc_setup/training/kaggle_train_runE.py` 돌리기 (이미 멀티 GPU `device=[0,1]` 적용해서 만들어둠, `cavity_train_runE` 이름으로 저장됨)
+3. **Kaggle 재학습 전 필수 확인**: 노트북 Input에 새로 올린 `dataset_runE`와 현재 `best.pt`(runD 결과)가 잡혀있는지 확인
+4. 학습 끝나면 runD(mAP50=0.698) 대비 얼마나 개선됐는지 비교하고, `pc_setup/backend/model/best.pt` 교체
+5. (테스트 이슈, 미해결) 사용자가 노트북 웹캠으로 입 사진 찍어서 테스트했더니 충치 탐지가 "놓침" 현상 있었음. `pc_setup/backend/main.py:411`의 `model.predict(image, conf=0.25, ...)` — confidence threshold 때문에 화질/조명 다른 웹캠 사진에서 낮은 확률로 탐지된 게 걸러졌을 가능성이 있음. 실제 테스트 사진으로 낮은 conf(0.01~0.05)로 재확인 필요 (아직 사진 못 받아서 미해결 상태)
+6. (로드맵, 아직 미착수) 사용자가 로컬 PC 의존도를 더 줄이고 싶어함 — 지금은 "로컬에서 병합 스크립트 실행 → zip → Kaggle 업로드" 흐름인데, 이걸 Kaggle 노트북 안에서 직접 병합까지 하도록 바꾸면 로컬 PC는 "새 원본 데이터셋 다운받아서 Kaggle에 업로드"만 하면 되므로 어느 컴퓨터에서 작업하든 상관없어짐. 사용자가 원하면 이 방식으로 전환 가능
+7. 사용자가 집 컴퓨터(GPU 사양 미확인, iGPU 여부도 미확인)로 로컬 학습을 시도해볼 수도 있음 — 로컬 학습 스크립트가 아직 없어서(지금까지 전부 Kaggle 전용) 필요하면 새로 작성해야 함. iGPU 없으면 학교 PC와 같은 화면 멈춤 위험 있다고 미리 안내해둠
 
 ## 알아둘 것 (함정 주의)
 - 학습 파이프라인 스크립트는 전부 `pc_setup/training/`으로 옮겨져 있음 (원래 `pc_setup/` 바로 아래 있었는데, upstream에 나중에 push할 때 앱 코드랑 안 섞이게 분리함). 스크립트 안 경로 계산도 이 위치 기준으로 다 맞춰놨으니 새로 옮기거나 실행 위치 바꾸지 말 것

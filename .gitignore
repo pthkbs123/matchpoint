@@ -32,6 +32,8 @@ yarn-error.log*
 /pc_setup/dataset_runC.zip
 /pc_setup/dataset_runD/
 /pc_setup/dataset_runD.zip
+/pc_setup/dataset_runE/
+/pc_setup/dataset_runE.zip
 /pc_setup/dataset_dentalv7_converted/
 /pc_setup/**/__pycache__/
 /pc_setup/*.pt
