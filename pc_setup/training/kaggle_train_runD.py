@@ -32,11 +32,11 @@ model.train(
     data=str(DATA_YAML),
     epochs=100,
     imgsz=640,
-    batch=32,
+    batch=64,
     patience=20,
     project="/kaggle/working/runs/detect",
     name="cavity_train_runD",
-    device=0,
+    device=[0, 1],
 )
 
 metrics = model.val()
