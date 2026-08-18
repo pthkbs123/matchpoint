@@ -41,7 +41,9 @@
 - `ToothCariesAI.v1i.yolov8` (단일 클래스 `KARIES` → 그대로 cavity, 깔끔함)
 - `dataset_dentalv7_converted` (`convert_dentalv7.py`로 별도 변환해둔 것) ← `dental.v7i.yolov8` 원본은 21클래스 스페인어+폴리곤 세그멘테이션 형식. 충치 세부유형 9개(caries, caries cervical 등)→cavity, `tooth`→normal, 나머지 11개(bridge/crown/root canal 등 무관한 소견)는 제외. cavity/normal 라벨이 하나도 없는 이미지는 통째로 제외 (11,658장 중 4,729장만 사용 가능했음)
 - **결과: train 28,898 / valid 6,059 / test 3,261장**
-- **상태: Kaggle에서 학습 진행 중** (Save & Run All로 커밋해서 백그라운드로 돎, `cavity_train_runD`라는 이름으로 저장됨). 세션 종료 시점엔 아직 Epoch 1 근처 시작 단계였음
+- **Kaggle 학습 완료** (2026-08-14~18, `cavity_train_runD`): patience=20 조기종료 없이 100 epoch 전부 완주, 100 epoch째가 곧 최고 성능(계속 개선 중이었다는 뜻 — 더 돌리면 성능 더 오를 여지 있음)
+- **결과: mAP50=0.698, mAP50-95=0.476, precision=0.660, recall=0.676** (runC 대비 mAP50 +0.100, mAP50-95 +0.072 — 데이터 4배 확장의 효과 확인됨)
+- **로컬 반영 완료**: `pc_setup/backend/model/best.pt`를 이 runD 결과로 교체함 (2026-08-18)
 
 ## Kaggle 노트북 학습 스크립트 방식
 - `pc_setup/training/kaggle_train_runC.py`, `pc_setup/training/kaggle_train_runD.py` — Kaggle 노트북 셀에 붙여넣는 스크립트
@@ -49,14 +51,14 @@
 - **매 라운드마다 직전 라운드의 `best.pt`를 이어받아 `model.train()` 다시 호출하는 방식** — 진짜 resume(중단 지점부터 재개)이 아니라 그 가중치로 처음부터 다시 학습하는 것이므로 매번 실제 GPU 시간을 다 씀 (주의)
 
 ## 다음에 할 일 (우선순위 순)
-1. **`dataset_runD` 학습 끝나는지 확인** — 9시간 세션 제한 안에 못 끝나면 `last.pt`를 `best.pt`로 이름 바꿔서 써도 됨
-2. 나온 `best.pt`를 Kaggle `hanium_dataset`에 `+ New Version`으로 교체 업로드
-3. 필요하면 그 `best.pt`를 로컬 `pc_setup/backend/model/best.pt`에도 반영 (실제 앱 서버에서 쓰려면 필요)
-4. 사용자가 데이터셋을 계속 찾아오는 중 — **병합(runE 등)은 사용자가 명시적으로 "만들어"라고 지시할 때만 진행할 것** (토큰 절약을 위해 확인만 먼저 하고 대기하기로 합의됨)
-5. (로드맵, 아직 미착수) 사용자가 로컬 PC 의존도를 더 줄이고 싶어함 — 지금은 "로컬에서 병합 스크립트 실행 → zip → Kaggle 업로드" 흐름인데, 이걸 Kaggle 노트북 안에서 직접 병합까지 하도록 바꾸면 로컬 PC는 "새 원본 데이터셋 다운받아서 Kaggle에 업로드"만 하면 되므로 어느 컴퓨터에서 작업하든 상관없어짐. 사용자가 원하면 이 방식으로 전환 가능
+1. (선택) 새 `best.pt`를 Kaggle `hanium_dataset`에 `+ New Version`으로 교체 업로드 — 아직 안 함
+2. 사용자가 데이터셋을 계속 찾아오는 중 — **병합(runE 등)은 사용자가 명시적으로 "만들어"라고 지시할 때만 진행할 것** (토큰 절약을 위해 확인만 먼저 하고 대기하기로 합의됨)
+3. (로드맵, 아직 미착수) 사용자가 로컬 PC 의존도를 더 줄이고 싶어함 — 지금은 "로컬에서 병합 스크립트 실행 → zip → Kaggle 업로드" 흐름인데, 이걸 Kaggle 노트북 안에서 직접 병합까지 하도록 바꾸면 로컬 PC는 "새 원본 데이터셋 다운받아서 Kaggle에 업로드"만 하면 되므로 어느 컴퓨터에서 작업하든 상관없어짐. 사용자가 원하면 이 방식으로 전환 가능
+4. runD가 조기종료 없이 100 epoch 끝까지 개선 추세였으므로, 여유 되면 epoch을 늘려서(`patience` 유지, `epochs` 상향) 추가 학습해보는 것도 고려해볼 만함
 
 ## 알아둘 것 (함정 주의)
 - 학습 파이프라인 스크립트는 전부 `pc_setup/training/`으로 옮겨져 있음 (원래 `pc_setup/` 바로 아래 있었는데, upstream에 나중에 push할 때 앱 코드랑 안 섞이게 분리함). 스크립트 안 경로 계산도 이 위치 기준으로 다 맞춰놨으니 새로 옮기거나 실행 위치 바꾸지 말 것
 - `D:\pth\dataset\` 로 원본 데이터셋들을 사용자가 정리해서 옮겨놨고, 스크립트들은 전부 이 경로(`DATASET_DIR`)를 정확히 참조하도록 되어 있음 (원래 `build_datasets.py`/`build_dataset_runC.py`가 옛 경로를 참조하던 문제 있었는데 분리하면서 같이 고쳐둠)
 - `dataset_runA`, `dataset_runB`, `dataset_runC`, `dataset_runD`, `dataset_dentalv7_converted` 폴더와 그 zip 파일들은 용량이 커서 **git에 커밋 안 함** (`.gitignore`에 추가해둠). 새 PC에서 이어가려면 이 스크립트들을 다시 돌려서 로컬에 재생성하거나, Kaggle에 이미 업로드된 버전을 그대로 활용하면 됨 (Kaggle 쪽은 클라우드라 이미 다 있음)
-- `pc_setup/backend/model/best.pt`는 git에 커밋되어 있는 초기 버전 (Kaggle 학습 결과가 아직 반영 안 됨)
+- `pc_setup/backend/model/best.pt`는 2026-08-18부로 `dataset_runD` 학습 결과로 교체됨 (mAP50=0.698)
+- Kaggle Output에서 파일 받을 때 **파일명 조심**: 노트북이 참조하던 베이스 사전학습 가중치(`yolo26n...` 등 다른 이름)를 실수로 받을 수 있음. 진짜 결과물은 `runs/detect/cavity_train_runD/weights/best.pt` 경로에 있는 파일이어야 하고, 로드해서 `model.names`가 `{0: 'cavity', 1: 'normal'}`인지 확인하면 됨
