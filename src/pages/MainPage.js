@@ -10,6 +10,7 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { apiFetch } from '../api';
+import { hasUnreadNotifications } from '../notificationStorage';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler);
 
@@ -20,7 +21,13 @@ const chartOptions = {
     legend: { display: false },
     tooltip: {
       displayColors: false,
-      callbacks: { label: (context) => `${context.parsed.y}점` },
+      callbacks: {
+        label: (context) => `${context.parsed.y}점`,
+        afterLabel: (context) => {
+          const count = context.dataset.scanCounts?.[context.dataIndex] || 1;
+          return count > 1 ? `당일 ${count}회 촬영 평균` : '당일 촬영 기록';
+        },
+      },
     },
   },
   scales: {
@@ -71,14 +78,20 @@ function MainPage({ onNavigate, user, token, selectedChildId, onSelectChild }) {
   const selectedChild = children.find((child) => child.id === selectedChildId);
   const trend = summary?.weekly_trend;
   const totalScans = summary?.total_scans ?? 0;
-  const hasTrend = totalScans >= 3 && trend?.scores?.length >= 3;
+  const trendDayCount = trend?.scores?.length ?? 0;
+  const hasTrend = trendDayCount >= 3;
   const currentScore = summary?.current_score;
+  const notifications = summary?.notifications || [];
+  const notificationsEnabled = localStorage.getItem('notif_service') !== 'false';
+  const hasUnreadNotification = notificationsEnabled
+    && hasUnreadNotifications(notifications, user, selectedChildId);
 
   const chartData = useMemo(() => ({
     labels: trend?.labels || [],
     datasets: [{
       label: '구강 건강 점수',
       data: trend?.scores || [],
+      scanCounts: trend?.scan_counts || [],
       borderColor: '#2f80ed',
       backgroundColor: 'rgba(47, 128, 237, 0.12)',
       pointBackgroundColor: '#ffffff',
@@ -100,9 +113,21 @@ function MainPage({ onNavigate, user, token, selectedChildId, onSelectChild }) {
             <h1>안녕하세요, {userName} 님</h1>
             <p className="subtext">아이의 구강 변화를 꾸준히 기록해 보세요.</p>
           </div>
-          <button className="profile-button" onClick={() => onNavigate('mypage')} aria-label="마이페이지로 이동">
-            <img src={profileImage} alt={`${userName} 님 프로필`} />
-          </button>
+          <div className="home-header-actions">
+            <button
+              className="notification-button"
+              onClick={() => onNavigate('notification')}
+              aria-label={hasUnreadNotification ? '새 알림이 있습니다. 알림 내역으로 이동' : '알림 내역으로 이동'}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
+              </svg>
+              {hasUnreadNotification && <span className="notification-dot" />}
+            </button>
+            <button className="profile-button" onClick={() => onNavigate('mypage')} aria-label="마이페이지로 이동">
+              <img src={profileImage} alt={`${userName} 님 프로필`} />
+            </button>
+          </div>
         </div>
 
         <button className="active-child-card" onClick={() => onNavigate('child-profile')}>
@@ -136,9 +161,9 @@ function MainPage({ onNavigate, user, token, selectedChildId, onSelectChild }) {
               <Line data={chartData} options={chartOptions} />
             ) : (
               <div className="trend-empty">
-                <strong>{Math.min(totalScans, 3)} / 3회</strong>
-                <span>3회 이상 촬영하면 변화 그래프가 열려요.</span>
-                <div><i style={{ width: `${Math.min(totalScans / 3, 1) * 100}%` }} /></div>
+                <strong>{Math.min(trendDayCount, 3)} / 3일</strong>
+                <span>서로 다른 날짜에 3일 이상 촬영하면 변화 그래프가 열려요.</span>
+                <div><i style={{ width: `${Math.min(trendDayCount / 3, 1) * 100}%` }} /></div>
               </div>
             )}
           </div>

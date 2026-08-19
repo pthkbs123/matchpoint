@@ -31,6 +31,7 @@ function App() {
   const [page, setPage] = useState(initialPage);
   const pageRef = useRef(initialPage);
   const sessionRef = useRef(savedSession);
+  const capturedOriginalBlobRef = useRef(null);
   const [capturedBlob, setCapturedBlob] = useState(null);
   const [capturedUrl, setCapturedUrl] = useState(null);
   const [analysisResult, setAnalysisResult] = useState(null);
@@ -123,12 +124,13 @@ function App() {
     else localStorage.setItem('smileguard-selected-child', String(nextId));
   }, []);
 
-  const handleCapture = useCallback((blob) => {
+  const handleCapture = useCallback((analysisBlob, originalBlob = analysisBlob) => {
     setCapturedUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
-      return URL.createObjectURL(blob);
+      return URL.createObjectURL(analysisBlob);
     });
-    setCapturedBlob(blob);
+    capturedOriginalBlobRef.current = originalBlob;
+    setCapturedBlob(analysisBlob);
     setAnalysisResult(null);
   }, []);
 
@@ -172,7 +174,7 @@ function App() {
     home: <MainPage onNavigate={navigate} user={session?.user} token={session?.accessToken} selectedChildId={selectedChildId} onSelectChild={handleSelectChild} />,
     mypage: <MyPage onNavigate={navigate} onBack={() => goBack('home')} user={session?.user} provider={session?.provider} token={session?.accessToken} onLogout={handleLogout} />,
     history: <HistoryPage onNavigate={navigate} onBack={() => goBack('mypage')} token={session?.accessToken} selectedChildId={selectedChildId} onSelectChild={handleSelectChild} />,
-    notification: <NotificationPage onNavigate={navigate} onBack={() => goBack('mypage')} />,
+    notification: <NotificationPage onNavigate={navigate} onBack={() => goBack('mypage')} user={session?.user} token={session?.accessToken} selectedChildId={selectedChildId} />,
     profile: <ProfilePage onNavigate={navigate} onBack={() => goBack('mypage')} user={session?.user} provider={session?.provider} token={session?.accessToken} onUserUpdate={handleUserUpdate} />,
     'child-profile': <ChildProfilePage onNavigate={navigate} onBack={() => goBack('mypage')} token={session?.accessToken} selectedChildId={selectedChildId} onSelectChild={handleSelectChild} />,
     'care-guide': <CareGuidePage onNavigate={navigate} onBack={() => goBack('home')} />,

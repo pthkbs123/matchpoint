@@ -1,10 +1,27 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../api';
 
+const HIGH_QUALITY_VIDEO_CONSTRAINTS = {
+  width: { ideal: 1920 },
+  height: { ideal: 1080 },
+  frameRate: { ideal: 30 },
+  resizeMode: 'none',
+};
+
+function createTrackConstraints(advanced) {
+  return {
+    ...HIGH_QUALITY_VIDEO_CONSTRAINTS,
+    ...(advanced ? { advanced: [advanced] } : {}),
+  };
+}
+
 function CameraPage({ onNavigate, onBack, onCapture, token, selectedChildId }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const fileInputRef = useRef(null);
+  const guideRef = useRef(null);
+  const imageCaptureRef = useRef(null);
+  const photoCapabilitiesRef = useRef(null);
   const capabilitiesRef = useRef({});
   const focusTargetRef = useRef(null);
   const focusTimerRef = useRef(null);
@@ -16,6 +33,8 @@ function CameraPage({ onNavigate, onBack, onCapture, token, selectedChildId }) {
   const [tapFocusSupported, setTapFocusSupported] = useState(false);
   const [focusIndicator, setFocusIndicator] = useState(null);
   const [cameraNotice, setCameraNotice] = useState('');
+  const [cameraQuality, setCameraQuality] = useState('');
+  const [isCapturing, setIsCapturing] = useState(false);
 
   useEffect(() => {
     if (!token || selectedChildId == null) return undefined;
@@ -44,11 +63,17 @@ function CameraPage({ onNavigate, onBack, onCapture, token, selectedChildId }) {
     setTorchEnabled(false);
     setTapFocusSupported(false);
     setFocusIndicator(null);
+    setCameraQuality('');
     capabilitiesRef.current = {};
     focusTargetRef.current = null;
+    imageCaptureRef.current = null;
+    photoCapabilitiesRef.current = null;
 
     getUserMedia.call(navigator.mediaDevices, {
-      video: { facingMode: { ideal: facingMode } },
+      video: {
+        facingMode: { ideal: facingMode },
+        ...HIGH_QUALITY_VIDEO_CONSTRAINTS,
+      },
       audio: false,
     })
       .then((stream) => {
@@ -65,6 +90,8 @@ function CameraPage({ onNavigate, onBack, onCapture, token, selectedChildId }) {
         const focusModes = Array.isArray(capabilities.focusMode) ? capabilities.focusMode : [];
         const supportsTapFocus = supportedConstraints.pointsOfInterest === true
           && (focusModes.includes('single-shot') || focusModes.includes('continuous'));
+        const settings = videoTrack?.getSettings?.() || {};
+        const longestSide = Math.max(settings.width || 0, settings.height || 0);
 
         const supportsTorch = capabilities.torch === true
           || (Array.isArray(capabilities.torch) && capabilities.torch.includes(true));
@@ -72,9 +99,26 @@ function CameraPage({ onNavigate, onBack, onCapture, token, selectedChildId }) {
         capabilitiesRef.current = capabilities;
         setTorchSupported(supportsTorch);
         setTapFocusSupported(supportsTapFocus);
+        setCameraQuality(longestSide >= 1920 ? 'FHD' : longestSide >= 1280 ? 'HD' : longestSide ? `${settings.width}×${settings.height}` : '');
+
+        if ('ImageCapture' in window && videoTrack) {
+          try {
+            const imageCapture = new window.ImageCapture(videoTrack);
+            imageCaptureRef.current = imageCapture;
+            if (typeof imageCapture.getPhotoCapabilities === 'function') {
+              imageCapture.getPhotoCapabilities()
+                .then((photoCapabilities) => {
+                  if (!cancelled) photoCapabilitiesRef.current = photoCapabilities;
+                })
+                .catch(() => { photoCapabilitiesRef.current = null; });
+            }
+          } catch {
+            imageCaptureRef.current = null;
+          }
+        }
 
         if (focusModes.includes('continuous')) {
-          videoTrack.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
+          videoTrack.applyConstraints(createTrackConstraints({ focusMode: 'continuous' })).catch(() => {});
         }
       })
       .catch(() => {
@@ -85,6 +129,8 @@ function CameraPage({ onNavigate, onBack, onCapture, token, selectedChildId }) {
       cancelled = true;
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
+      imageCaptureRef.current = null;
+      photoCapabilitiesRef.current = null;
       clearTimeout(focusTimerRef.current);
     };
   }, [facingMode]);
@@ -105,7 +151,7 @@ function CameraPage({ onNavigate, onBack, onCapture, token, selectedChildId }) {
         advanced.pointsOfInterest = [focusTargetRef.current];
         advanced.focusMode = focusModes.includes('single-shot') ? 'single-shot' : 'continuous';
       }
-      await videoTrack.applyConstraints({ advanced: [advanced] });
+      await videoTrack.applyConstraints(createTrackConstraints(advanced));
       setTorchEnabled(nextTorchState);
       setCameraNotice(nextTorchState ? '플래시를 켰어요' : '플래시를 껐어요');
     } catch {
@@ -166,7 +212,7 @@ function CameraPage({ onNavigate, onBack, onCapture, token, selectedChildId }) {
     if (torchSupported) advanced.torch = torchEnabled;
 
     try {
-      await videoTrack.applyConstraints({ advanced: [advanced] });
+      await videoTrack.applyConstraints(createTrackConstraints(advanced));
       focusTargetRef.current = focusTarget;
       setFocusIndicator({ x: visualX, y: visualY, status: 'focused' });
       setCameraNotice('선택한 위치에 초점을 맞췄어요');
@@ -175,37 +221,169 @@ function CameraPage({ onNavigate, onBack, onCapture, token, selectedChildId }) {
       setFocusIndicator({ x: visualX, y: visualY, status: 'unsupported' });
       setCameraNotice('터치 초점을 적용하지 못해 자동 초점으로 전환했어요');
       if (focusModes.includes('continuous')) {
-        videoTrack.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
+        videoTrack.applyConstraints(createTrackConstraints({ focusMode: 'continuous' })).catch(() => {});
       }
     }
 
     focusTimerRef.current = setTimeout(() => setFocusIndicator(null), 1400);
   };
 
-  const handleShutter = () => {
+  const captureVideoFrame = () => new Promise((resolve) => {
     const video = videoRef.current;
-    if (!video || !video.videoWidth) return;
+    if (!video || !video.videoWidth) {
+      resolve(null);
+      return;
+    }
 
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    canvas.getContext('2d').drawImage(video, 0, 0);
+    const context = canvas.getContext('2d');
+    if (!context) {
+      resolve(null);
+      return;
+    }
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = 'high';
+    context.drawImage(video, 0, 0);
 
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) return;
-        onCapture(blob);
-        onNavigate('preview');
-      },
-      'image/jpeg',
-      0.92
-    );
+    canvas.toBlob(resolve, 'image/jpeg', 0.98);
+  });
+
+  const captureGuideFrame = () => new Promise((resolve) => {
+    const video = videoRef.current;
+    const guide = guideRef.current;
+    if (!video || !guide || !video.videoWidth || !video.videoHeight) {
+      resolve(null);
+      return;
+    }
+
+    const videoRect = video.getBoundingClientRect();
+    const guideRect = guide.getBoundingClientRect();
+    const videoAspectRatio = video.videoWidth / video.videoHeight;
+    const viewAspectRatio = videoRect.width / videoRect.height;
+    let renderedWidth;
+    let renderedHeight;
+    let cropOffsetX = 0;
+    let cropOffsetY = 0;
+
+    if (videoAspectRatio > viewAspectRatio) {
+      renderedHeight = videoRect.height;
+      renderedWidth = renderedHeight * videoAspectRatio;
+      cropOffsetX = (renderedWidth - videoRect.width) / 2;
+    } else {
+      renderedWidth = videoRect.width;
+      renderedHeight = renderedWidth / videoAspectRatio;
+      cropOffsetY = (renderedHeight - videoRect.height) / 2;
+    }
+
+    const guideX = guideRect.left - videoRect.left;
+    const guideY = guideRect.top - videoRect.top;
+    const sourceX = ((guideX + cropOffsetX) / renderedWidth) * video.videoWidth;
+    const sourceY = ((guideY + cropOffsetY) / renderedHeight) * video.videoHeight;
+    const sourceWidth = (guideRect.width / renderedWidth) * video.videoWidth;
+    const sourceHeight = (guideRect.height / renderedHeight) * video.videoHeight;
+    const clampedWidth = Math.min(sourceWidth, video.videoWidth - sourceX);
+    const clampedHeight = Math.min(sourceHeight, video.videoHeight - sourceY);
+
+    if (clampedWidth < 1 || clampedHeight < 1) {
+      resolve(null);
+      return;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(clampedWidth));
+    canvas.height = Math.max(1, Math.round(clampedHeight));
+    const context = canvas.getContext('2d');
+    if (!context) {
+      resolve(null);
+      return;
+    }
+
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = 'high';
+
+    if (facingMode === 'user') {
+      const mirroredSourceX = video.videoWidth - sourceX - clampedWidth;
+      context.translate(canvas.width, 0);
+      context.scale(-1, 1);
+      context.drawImage(
+        video,
+        mirroredSourceX,
+        sourceY,
+        clampedWidth,
+        clampedHeight,
+        0,
+        0,
+        canvas.width,
+        canvas.height
+      );
+    } else {
+      context.drawImage(
+        video,
+        sourceX,
+        sourceY,
+        clampedWidth,
+        clampedHeight,
+        0,
+        0,
+        canvas.width,
+        canvas.height
+      );
+    }
+
+    canvas.toBlob(resolve, 'image/jpeg', 0.98);
+  });
+
+  const handleShutter = async () => {
+    if (isCapturing) return;
+    setIsCapturing(true);
+    setCameraNotice('고화질 사진을 저장하는 중이에요...');
+
+    const analysisBlobPromise = captureGuideFrame();
+    let originalBlob = null;
+    const imageCapture = imageCaptureRef.current;
+
+    if (imageCapture) {
+      const photoCapabilities = photoCapabilitiesRef.current;
+      const photoSettings = {};
+      if (Number.isFinite(photoCapabilities?.imageWidth?.max)) {
+        photoSettings.imageWidth = photoCapabilities.imageWidth.max;
+      }
+      if (Number.isFinite(photoCapabilities?.imageHeight?.max)) {
+        photoSettings.imageHeight = photoCapabilities.imageHeight.max;
+      }
+
+      try {
+        originalBlob = await imageCapture.takePhoto(photoSettings);
+      } catch {
+        try {
+          originalBlob = await imageCapture.takePhoto();
+        } catch {
+          originalBlob = null;
+        }
+      }
+    }
+
+    if (!originalBlob) originalBlob = await captureVideoFrame();
+    const analysisBlob = await analysisBlobPromise || originalBlob;
+
+    if (analysisBlob) {
+      setIsCapturing(false);
+      onCapture(analysisBlob, originalBlob || analysisBlob);
+      onNavigate('preview');
+      return;
+    } else {
+      setCameraNotice('사진을 저장하지 못했어요. 다시 촬영해 주세요');
+    }
+
+    setIsCapturing(false);
   };
 
   const handleFallbackCapture = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    onCapture(file);
+    onCapture(file, file);
     onNavigate('preview');
     event.target.value = '';
   };
@@ -227,7 +405,10 @@ function CameraPage({ onNavigate, onBack, onCapture, token, selectedChildId }) {
       <div className={`camera-view ${tapFocusSupported ? 'tap-focus-enabled' : ''}`} onClick={handleTapToFocus}>
         <div className="camera-top">
           <button className="back-button dark-button" onClick={onBack || (() => onNavigate('home'))}>← 뒤로</button>
-          <span className="live-badge"><i /> LIVE</span>
+          <div className="camera-status-badges">
+            {cameraQuality && <span className="camera-quality-badge">{cameraQuality}</span>}
+            <span className="live-badge"><i /> LIVE</span>
+          </div>
         </div>
         <div className="camera-subject">{childName ? `${childName} 촬영 중` : '자녀 미선택'}</div>
         {!error && <video ref={videoRef} className={`camera-feed ${facingMode === 'user' ? 'mirrored' : ''}`} autoPlay playsInline muted />}
@@ -239,7 +420,7 @@ function CameraPage({ onNavigate, onBack, onCapture, token, selectedChildId }) {
           />
         )}
         <p className="camera-hint">{selectedChildId == null ? '촬영 전에 자녀 프로필을 선택해 주세요' : error || cameraNotice || (tapFocusSupported ? '화면을 눌러 원하는 위치에 초점을 맞춰주세요' : '치아가 가이드 안에 들어오도록 맞춰주세요')}</p>
-        <div className="camera-guide" />
+        <div ref={guideRef} className="camera-guide" />
         <button className="camera-guide-link" onClick={() => onNavigate('care-guide')}>촬영·위생 가이드</button>
       </div>
       <div className="camera-controls">
@@ -262,7 +443,7 @@ function CameraPage({ onNavigate, onBack, onCapture, token, selectedChildId }) {
           onChange={handleFallbackCapture}
           hidden
         />
-        <button className="shutter" onClick={handleCaptureButton} aria-label={error ? '사진 촬영 또는 선택' : '촬영'} />
+        <button className="shutter" onClick={handleCaptureButton} disabled={isCapturing} aria-label={error ? '사진 촬영 또는 선택' : isCapturing ? '고화질 사진 저장 중' : '촬영'} />
         <button
           type="button"
           className={`camera-tool-button ${torchEnabled ? 'active' : ''}`}

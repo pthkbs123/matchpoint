@@ -21,7 +21,13 @@ const trendOptions = {
     legend: { display: false },
     tooltip: {
       displayColors: false,
-      callbacks: { label: (context) => `구강 건강 점수: ${context.parsed.y}점` },
+      callbacks: {
+        label: (context) => `구강 건강 점수: ${context.parsed.y}점`,
+        afterLabel: (context) => {
+          const count = context.dataset.scanCounts?.[context.dataIndex] || 1;
+          return count > 1 ? `당일 ${count}회 촬영 평균` : '당일 촬영 기록';
+        },
+      },
     },
   },
   scales: {
@@ -69,13 +75,15 @@ function ReportPage({ onNavigate, onBack, token, selectedChildId }) {
   const totalScans = summary?.total_scans ?? 0;
   const currentScore = summary?.current_score;
   const scoreChange = summary?.score_change;
-  const hasTrend = totalScans >= 3 && trend?.scores?.length >= 3;
+  const trendDayCount = trend?.scores?.length ?? 0;
+  const hasTrend = trendDayCount >= 3;
 
   const data = useMemo(() => ({
     labels: trend?.labels || [],
     datasets: [{
       label: '구강 건강 점수',
       data: trend?.scores || [],
+      scanCounts: trend?.scan_counts || [],
       borderColor: '#2f80ed',
       backgroundColor: 'rgba(47, 128, 237, 0.12)',
       pointBackgroundColor: '#ffffff',
@@ -91,8 +99,8 @@ function ReportPage({ onNavigate, onBack, token, selectedChildId }) {
   const changeLabel = scoreChange == null
     ? '비교할 이전 기록이 없어요'
     : scoreChange === 0
-      ? '이전 촬영과 동일해요'
-      : `이전 촬영보다 ${Math.abs(scoreChange)}점 ${scoreChange > 0 ? '올랐어요' : '내렸어요'}`;
+      ? '이전 기록일 평균과 동일해요'
+      : `이전 기록일 평균보다 ${Math.abs(scoreChange)}점 ${scoreChange > 0 ? '올랐어요' : '내렸어요'}`;
 
   return (
     <section className="phone">
@@ -117,8 +125,8 @@ function ReportPage({ onNavigate, onBack, token, selectedChildId }) {
         <div className="period">
           <div><h2>변화 추이</h2><p>{changeLabel}</p></div>
           <div className="range-tabs" aria-label="리포트 기간">
-            <button className={range === 'weekly' ? 'active' : ''} onClick={() => setRange('weekly')}>최근 7회</button>
-            <button className={range === 'monthly' ? 'active' : ''} onClick={() => setRange('monthly')}>최근 30회</button>
+            <button className={range === 'weekly' ? 'active' : ''} onClick={() => setRange('weekly')}>최근 7일</button>
+            <button className={range === 'monthly' ? 'active' : ''} onClick={() => setRange('monthly')}>최근 30일</button>
           </div>
         </div>
 
@@ -132,8 +140,8 @@ function ReportPage({ onNavigate, onBack, token, selectedChildId }) {
           ) : (
             <div className="report-onboarding">
               <span>▥</span>
-              <h3>추이 분석까지 {Math.max(3 - totalScans, 0)}회 남았어요</h3>
-              <p>조명과 촬영 위치를 비슷하게 유지해 3회 이상 기록하면 변화 그래프를 확인할 수 있어요.</p>
+              <h3>추이 분석까지 {Math.max(3 - trendDayCount, 0)}일 남았어요</h3>
+              <p>조명과 촬영 위치를 비슷하게 유지해 서로 다른 날짜에 3일 이상 기록하면 변화 그래프를 확인할 수 있어요.</p>
               <button className="login-button" onClick={() => onNavigate('camera')}>촬영하기</button>
             </div>
           )}

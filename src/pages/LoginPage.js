@@ -9,6 +9,9 @@ const HAS_VALID_GOOGLE_CLIENT_ID =
   !GOOGLE_CLIENT_ID.toLowerCase().startsWith('your-');
 const KAKAO_JAVASCRIPT_KEY = process.env.REACT_APP_KAKAO_JAVASCRIPT_KEY;
 const KAKAO_REDIRECT_URI = process.env.REACT_APP_KAKAO_REDIRECT_URI || `${window.location.origin}/`;
+const USER_AGENT = navigator.userAgent || '';
+const IS_KAKAO_IN_APP_BROWSER = /KAKAOTALK|KAKAOSTORY/i.test(USER_AGENT);
+const IS_ANDROID = /Android/i.test(USER_AGENT);
 
 function createOAuthState() {
   if (typeof window.crypto?.randomUUID === 'function') {
@@ -41,7 +44,10 @@ function loadScript(id, src) {
       script.dataset.loaded = 'true';
       resolve();
     };
-    script.onerror = () => reject(new Error('로그인 SDK를 불러오지 못했습니다.'));
+    script.onerror = () => {
+      script.remove();
+      reject(new Error('로그인 SDK를 불러오지 못했습니다.'));
+    };
     document.head.appendChild(script);
   });
 }
@@ -68,6 +74,7 @@ function LoginPage({ onLogin, onNavigate }) {
     () => localStorage.getItem('smileguard-auto-login') === 'true'
   );
   const [socialError, setSocialError] = useState('');
+  const [externalBrowserStatus, setExternalBrowserStatus] = useState('');
   const [isSocialLoading, setIsSocialLoading] = useState(false);
   const googleButtonRef = useRef(null);
 
@@ -101,12 +108,16 @@ function LoginPage({ onLogin, onNavigate }) {
   }, [completeSocialLogin]);
 
   useEffect(() => {
-    if (!HAS_VALID_GOOGLE_CLIENT_ID || !googleButtonRef.current) return undefined;
+    if (IS_KAKAO_IN_APP_BROWSER || !HAS_VALID_GOOGLE_CLIENT_ID || !googleButtonRef.current) return undefined;
     let cancelled = false;
 
     loadScript('google-identity-service', GOOGLE_SCRIPT_URL)
       .then(() => {
-        if (cancelled || !window.google || !googleButtonRef.current) return;
+        if (cancelled || !googleButtonRef.current) return;
+        if (!window.google?.accounts?.id) {
+          setSocialError('Google 로그인 서비스를 시작하지 못했습니다. 외부 브라우저에서 다시 시도해 주세요.');
+          return;
+        }
         window.google.accounts.id.initialize({
           client_id: GOOGLE_CLIENT_ID,
           callback: handleGoogleCredential,
@@ -224,6 +235,30 @@ function LoginPage({ onLogin, onNavigate }) {
     });
   };
 
+  const copyCurrentAddress = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setExternalBrowserStatus('주소를 복사했어요. Chrome 또는 Safari 주소창에 붙여 넣어주세요.');
+    } catch {
+      setExternalBrowserStatus(`주소를 길게 눌러 복사해 주세요: ${window.location.href}`);
+    }
+  };
+
+  const handleOpenExternalBrowser = () => {
+    if (!IS_ANDROID) {
+      copyCurrentAddress();
+      return;
+    }
+
+    const currentAddress = window.location.href;
+    const scheme = currentAddress.startsWith('https://') ? 'https' : 'http';
+    const addressWithoutScheme = currentAddress.replace(/^https?:\/\//i, '');
+    const intentUrl = `intent://${addressWithoutScheme}#Intent;scheme=${scheme};package=com.android.chrome;category=android.intent.category.BROWSABLE;end`;
+
+    setExternalBrowserStatus('Chrome이 열리지 않으면 카카오톡 오른쪽 위 메뉴에서 ‘다른 브라우저로 열기’를 선택해 주세요.');
+    window.location.assign(intentUrl);
+  };
+
   return (
     <section className="phone login-page">
       <div className="login-decoration login-decoration-one" />
@@ -264,7 +299,19 @@ function LoginPage({ onLogin, onNavigate }) {
             <span className="kakao-symbol" aria-hidden="true">●</span>
             카카오로 계속하기
           </button>
-          {HAS_VALID_GOOGLE_CLIENT_ID ? (
+          {IS_KAKAO_IN_APP_BROWSER ? (
+            <div className="google-inapp-login">
+              <button type="button" className="social-button google-placeholder" onClick={handleOpenExternalBrowser}>
+                <span className="google-symbol" aria-hidden="true">G</span>
+                {IS_ANDROID ? 'Chrome에서 Google 로그인' : '외부 브라우저에서 Google 로그인'}
+              </button>
+              <div className="inapp-browser-guide">
+                <strong>카카오톡 안에서는 Google 로그인이 제한돼요</strong>
+                <p>오른쪽 위 <b>⋮</b> 메뉴에서 <b>다른 브라우저로 열기</b>를 선택해 주세요.</p>
+                <button type="button" className="text-button" onClick={copyCurrentAddress}>현재 주소 복사</button>
+              </div>
+            </div>
+          ) : HAS_VALID_GOOGLE_CLIENT_ID ? (
             <div className="google-button-wrap" ref={googleButtonRef} />
           ) : (
             <button type="button" className="social-button google-placeholder" onClick={() => setSocialError('올바른 Google 웹 애플리케이션 클라이언트 ID를 .env에 설정해 주세요.')}>
@@ -275,6 +322,7 @@ function LoginPage({ onLogin, onNavigate }) {
         </div>
 
         {isSocialLoading && <p className="social-status">계정 정보를 확인하고 있어요...</p>}
+        {externalBrowserStatus && <p className="external-browser-status" role="status">{externalBrowserStatus}</p>}
         {socialError && <p className="social-error" role="alert">{socialError}</p>}
 
         <p className="join-text">아직 회원이 아니신가요?<button type="button" className="text-button" onClick={() => onNavigate('signup')}>회원가입</button></p>

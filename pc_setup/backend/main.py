@@ -17,7 +17,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFi
 from fastapi.middleware.cors import CORSMiddleware
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
-from PIL import Image
+from PIL import Image, ImageOps
 from pydantic import BaseModel
 from ultralytics import YOLO
 
@@ -491,7 +491,7 @@ async def analyze(
 
     contents = await file.read()
     try:
-        image = Image.open(io.BytesIO(contents)).convert("RGB")
+        image = ImageOps.exif_transpose(Image.open(io.BytesIO(contents))).convert("RGB")
     except Exception:
         raise HTTPException(status_code=400, detail="이미지를 읽을 수 없습니다.")
 
@@ -554,16 +554,35 @@ def _days_since(iso_str: str) -> int:
     return max(0, delta.days)
 
 
-def _short_date(iso_str: str) -> str:
-    dt = datetime.fromisoformat(iso_str)
-    return f"{dt.month}/{dt.day}"
+def _daily_score_series(rows) -> list[dict]:
+    daily_scores: dict = {}
+    korea_timezone = timezone(timedelta(hours=9))
+
+    for row in rows:
+        created_at = datetime.fromisoformat(row["created_at"]).astimezone(korea_timezone)
+        day = created_at.date()
+        daily_scores.setdefault(day, []).append(row["score"])
+
+    return [
+        {
+            "date": day,
+            "label": f"{day.month}/{day.day}",
+            "score": round(sum(scores) / len(scores)),
+            "scan_count": len(scores),
+        }
+        for day, scores in sorted(daily_scores.items())
+    ]
 
 
 def _calc_streak(created_ats: list[str]) -> int:
     if not created_ats:
         return 0
-    unique_days = sorted({datetime.fromisoformat(c).date() for c in created_ats}, reverse=True)
-    today = datetime.now(timezone.utc).date()
+    korea_timezone = timezone(timedelta(hours=9))
+    unique_days = sorted(
+        {datetime.fromisoformat(c).astimezone(korea_timezone).date() for c in created_ats},
+        reverse=True,
+    )
+    today = datetime.now(korea_timezone).date()
     if unique_days[0] not in (today, today - timedelta(days=1)):
         return 0
     streak = 1
@@ -624,25 +643,45 @@ def report_summary(child_id: int | None = Query(None), user=Depends(require_user
     current_score = rows[-1]["score"] if rows else 100
     streak_days = _calc_streak([r["created_at"] for r in rows])
     member_since_days = _days_since(user["created_at"])
-    recent = rows[-7:]
-    monthly = rows[-30:]
-    current_month_average = round(sum(r["score"] for r in monthly) / len(monthly)) if monthly else None
-    score_change = rows[-1]["score"] - rows[-2]["score"] if len(rows) >= 2 else None
+    daily_scores = _daily_score_series(rows)
+    korea_today = datetime.now(timezone(timedelta(hours=9))).date()
+    recent = [item for item in daily_scores if item["date"] >= korea_today - timedelta(days=6)]
+    monthly = [item for item in daily_scores if item["date"] >= korea_today - timedelta(days=29)]
+    current_month_average = round(sum(item["score"] for item in monthly) / len(monthly)) if monthly else None
+    score_change = daily_scores[-1]["score"] - daily_scores[-2]["score"] if len(daily_scores) >= 2 else None
+    notifications = []
+    for previous, current in zip(daily_scores, daily_scores[1:]):
+        daily_change = current["score"] - previous["score"]
+        if current["date"] >= korea_today - timedelta(days=29) and daily_change <= -10:
+            notifications.append({
+                "id": f"{child_id or 'all'}:{current['date'].isoformat()}:{current['score']}:{daily_change}",
+                "date": current["date"].isoformat(),
+                "date_label": f"{current['date'].month}월 {current['date'].day}일",
+                "title": "구강 건강 점수 하락 감지",
+                "message": f"이전 기록일 평균보다 {abs(daily_change)}점 낮아졌어요. 같은 환경에서 다시 촬영해 주세요.",
+                "score": current["score"],
+                "score_change": daily_change,
+            })
+    notifications.reverse()
 
     return {
         "current_score": current_score,
         "total_scans": total_scans,
+        "recorded_days": len(daily_scores),
         "streak_days": streak_days,
         "member_since_days": member_since_days,
         "weekly_trend": {
-            "labels": [_short_date(r["created_at"]) for r in recent],
-            "scores": [r["score"] for r in recent],
+            "labels": [item["label"] for item in recent],
+            "scores": [item["score"] for item in recent],
+            "scan_counts": [item["scan_count"] for item in recent],
         },
         "monthly_trend": {
-            "labels": [_short_date(r["created_at"]) for r in monthly],
-            "scores": [r["score"] for r in monthly],
+            "labels": [item["label"] for item in monthly],
+            "scores": [item["score"] for item in monthly],
+            "scan_counts": [item["scan_count"] for item in monthly],
         },
         "monthly_average": current_month_average,
         "score_change": score_change,
         "attention_required": score_change is not None and score_change <= -10,
+        "notifications": notifications,
     }

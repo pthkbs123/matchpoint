@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { apiFetch } from '../api';
+import { markNotificationsRead } from '../notificationStorage';
 
 function readBoolean(key, fallback) {
   const value = localStorage.getItem(key);
@@ -15,17 +17,40 @@ function SettingRow({ title, description, checked, onChange }) {
   );
 }
 
-function NotificationPage({ onNavigate, onBack }) {
+function NotificationPage({ onNavigate, onBack, user, token, selectedChildId }) {
   const [serviceEnabled, setServiceEnabled] = useState(() => readBoolean('notif_service', true));
   const [reportEnabled, setReportEnabled] = useState(() => readBoolean('notif_report', true));
   const [nightModeEnabled, setNightModeEnabled] = useState(() => readBoolean('notif_night', true));
   const [reportDay, setReportDay] = useState(() => localStorage.getItem('notif_report_day') || '월요일');
   const [permission, setPermission] = useState(() => ('Notification' in window ? Notification.permission : 'unsupported'));
+  const [notifications, setNotifications] = useState([]);
+  const [isLoadingNotifications, setIsLoadingNotifications] = useState(true);
 
   useEffect(() => { localStorage.setItem('notif_service', String(serviceEnabled)); }, [serviceEnabled]);
   useEffect(() => { localStorage.setItem('notif_report', String(reportEnabled)); }, [reportEnabled]);
   useEffect(() => { localStorage.setItem('notif_night', String(nightModeEnabled)); }, [nightModeEnabled]);
   useEffect(() => { localStorage.setItem('notif_report_day', reportDay); }, [reportDay]);
+
+  useEffect(() => {
+    if (!token) {
+      setIsLoadingNotifications(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const query = selectedChildId ? `?child_id=${selectedChildId}` : '';
+    apiFetch(`/api/report/summary${query}`, { token })
+      .then((data) => {
+        if (cancelled) return;
+        const nextNotifications = data.notifications || [];
+        setNotifications(nextNotifications);
+        markNotificationsRead(nextNotifications, user, selectedChildId);
+      })
+      .catch(() => { if (!cancelled) setNotifications([]); })
+      .finally(() => { if (!cancelled) setIsLoadingNotifications(false); });
+
+    return () => { cancelled = true; };
+  }, [token, user, selectedChildId]);
 
   const requestPermission = async () => {
     if (!('Notification' in window)) return;
@@ -40,14 +65,41 @@ function NotificationPage({ onNavigate, onBack }) {
     unsupported: '현재 브라우저는 알림 기능을 지원하지 않아요.',
   }[permission];
 
+  const notificationHistory = (
+    <section className="notification-history">
+      <div className="card-head"><h2>알림 내역</h2><span>최근 30일</span></div>
+      {isLoadingNotifications ? (
+        <p className="page-state">알림 내역을 불러오는 중이에요...</p>
+      ) : notifications.length > 0 ? (
+        <div className="notification-history-list">
+          {notifications.map((notification) => (
+            <article className="notification-history-item" key={notification.id}>
+              <span className="notification-history-icon">!</span>
+              <div>
+                <small>{notification.date_label}</small>
+                <strong>{notification.title}</strong>
+                <p>{notification.message}</p>
+              </div>
+              <b>{notification.score_change}점</b>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-notification"><span>✓</span><strong>새로운 주의 알림이 없어요</strong><p>변화가 감지되면 이곳에서 다시 확인할 수 있어요.</p></div>
+      )}
+    </section>
+  );
+
   return (
     <section className="phone">
       <div className="mypage-content">
         <div className="mypage-top">
           <button className="back-button" onClick={onBack || (() => onNavigate('mypage'))}>← 뒤로</button>
-          <h1>알림 설정</h1>
+          <h1>알림</h1>
           <span className="mypage-top-space" />
         </div>
+
+        {notificationHistory}
 
         <div className={`push-status ${permission}`}>
           <span>◌</span>
@@ -67,11 +119,6 @@ function NotificationPage({ onNavigate, onBack }) {
             {['월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일'].map((day) => <option key={day}>{day}</option>)}
           </select>
         </label>
-
-        <section className="notification-history">
-          <div className="card-head"><h2>알림 내역</h2><span>최근 30일</span></div>
-          <div className="empty-notification"><span>✓</span><strong>새로운 주의 알림이 없어요</strong><p>변화가 감지되면 이곳에서 다시 확인할 수 있어요.</p></div>
-        </section>
       </div>
     </section>
   );
