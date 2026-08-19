@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import './App.css';
 import MainPage from './pages/MainPage';
 import CameraPage from './pages/CameraPage';
@@ -14,6 +14,8 @@ import ResetPasswordPage from './pages/ResetPasswordPage';
 import HistoryPage from './pages/HistoryPage';
 import NotificationPage from './pages/NotificationPage';
 import ProfilePage from './pages/ProfilePage';
+import ChildProfilePage from './pages/ChildProfilePage';
+import CareGuidePage from './pages/CareGuidePage';
 
 function App() {
   const savedSession = (() => {
@@ -29,6 +31,22 @@ function App() {
   const [capturedBlob, setCapturedBlob] = useState(null);
   const [capturedUrl, setCapturedUrl] = useState(null);
   const [analysisResult, setAnalysisResult] = useState(null);
+  const [selectedChildId, setSelectedChildId] = useState(() => {
+    const saved = localStorage.getItem('smileguard-selected-child');
+    return saved ? Number(saved) : null;
+  });
+
+  useEffect(() => {
+    const scrollContainer = document.querySelector('.page-content, .mypage-content, .report-body');
+    if (scrollContainer) scrollContainer.scrollTop = 0;
+  }, [page]);
+
+  const handleSelectChild = useCallback((childId) => {
+    const nextId = childId == null ? null : Number(childId);
+    setSelectedChildId(nextId);
+    if (nextId == null) localStorage.removeItem('smileguard-selected-child');
+    else localStorage.setItem('smileguard-selected-child', String(nextId));
+  }, []);
 
   const handleCapture = useCallback((blob) => {
     setCapturedUrl((prev) => {
@@ -60,29 +78,42 @@ function App() {
     setPage('login');
   };
 
+  const handleUserUpdate = (user) => {
+    setSession((current) => {
+      if (!current) return current;
+      const nextSession = { ...current, user };
+      const storage = localStorage.getItem('smileguard-session') ? localStorage : sessionStorage;
+      storage.setItem('smileguard-session', JSON.stringify(nextSession));
+      return nextSession;
+    });
+  };
+
   const pages = {
     login: <LoginPage onLogin={handleLogin} onNavigate={setPage} />,
     signup: <SignUpPage onNavigate={setPage} />,
     'find-id': <FindAccountPage onNavigate={setPage} initialTab="id" />,
     'find-password': <FindAccountPage onNavigate={setPage} initialTab="password" />,
     'reset-password': <ResetPasswordPage onNavigate={setPage} token={resetToken} />,
-    home: <MainPage onNavigate={setPage} user={session?.user} token={session?.accessToken} />,
-    mypage: <MyPage onNavigate={setPage} user={session?.user} token={session?.accessToken} onLogout={handleLogout} />,
-    history: <HistoryPage onNavigate={setPage} token={session?.accessToken} />,
+    home: <MainPage onNavigate={setPage} user={session?.user} token={session?.accessToken} selectedChildId={selectedChildId} onSelectChild={handleSelectChild} />,
+    mypage: <MyPage onNavigate={setPage} user={session?.user} provider={session?.provider} token={session?.accessToken} onLogout={handleLogout} />,
+    history: <HistoryPage onNavigate={setPage} token={session?.accessToken} selectedChildId={selectedChildId} onSelectChild={handleSelectChild} />,
     notification: <NotificationPage onNavigate={setPage} />,
-    profile: <ProfilePage onNavigate={setPage} />,
-    camera: <CameraPage onNavigate={setPage} onCapture={handleCapture} />,
+    profile: <ProfilePage onNavigate={setPage} user={session?.user} provider={session?.provider} token={session?.accessToken} onUserUpdate={handleUserUpdate} />,
+    'child-profile': <ChildProfilePage onNavigate={setPage} token={session?.accessToken} selectedChildId={selectedChildId} onSelectChild={handleSelectChild} />,
+    'care-guide': <CareGuidePage onNavigate={setPage} />,
+    camera: <CameraPage onNavigate={setPage} onCapture={handleCapture} token={session?.accessToken} selectedChildId={selectedChildId} />,
     preview: <CapturePreviewPage onNavigate={setPage} capturedUrl={capturedUrl} />,
     analyzing: (
       <AnalyzingPage
         onNavigate={setPage}
         capturedBlob={capturedBlob}
         token={session?.accessToken}
+        selectedChildId={selectedChildId}
         onAnalysisComplete={setAnalysisResult}
       />
     ),
     result: <ResultPage onNavigate={setPage} analysisResult={analysisResult} capturedUrl={capturedUrl} />,
-    report: <ReportPage onNavigate={setPage} />,
+    report: <ReportPage onNavigate={setPage} token={session?.accessToken} selectedChildId={selectedChildId} />,
   };
 
   return <main className="app-shell">{pages[page]}</main>;

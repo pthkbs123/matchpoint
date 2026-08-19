@@ -2,7 +2,9 @@ function ResultPage({ onNavigate, analysisResult, capturedUrl }) {
   const cavityCount = analysisResult?.summary?.cavity_count ?? 0;
   const normalCount = analysisResult?.summary?.normal_count ?? 0;
   const score = analysisResult?.summary?.score;
+  const detections = analysisResult?.detections || [];
   const hasCavity = cavityCount > 0;
+  const hasDetection = detections.length > 0;
   const imageSize = analysisResult?.image_size;
 
   return (
@@ -14,11 +16,13 @@ function ResultPage({ onNavigate, analysisResult, capturedUrl }) {
         </div>
 
         <div className="result-hero">
-          <span className="check">{hasCavity ? '!' : '✓'}</span>
-          <h1>{hasCavity ? '충치 의심 부위가 발견됐어요' : '분석이 완료됐어요'}</h1>
+          <span className={`check ${!hasDetection ? 'retry' : ''}`}>{!hasDetection ? '↻' : hasCavity ? '!' : '✓'}</span>
+          <h1>{!hasDetection ? '치아 영역을 찾지 못했어요' : hasCavity ? '주의 깊게 볼 부위가 있어요' : '분석이 완료됐어요'}</h1>
           <p className="subtext">
-            {hasCavity
-              ? `충치로 의심되는 부위 ${cavityCount}곳이 감지됐어요. 치과 상담을 권장드려요.`
+            {!hasDetection
+              ? '치아가 화면 중앙에 오도록 맞추고 조명을 확인한 뒤 다시 촬영해 주세요.'
+              : hasCavity
+              ? `AI가 주의가 필요한 부위 ${cavityCount}곳을 표시했어요. 같은 위치를 다시 확인해 주세요.`
               : '전체적으로 양호한 상태입니다.'}
           </p>
         </div>
@@ -26,7 +30,7 @@ function ResultPage({ onNavigate, analysisResult, capturedUrl }) {
         {capturedUrl && imageSize && (
           <div className="result-image">
             <img src={capturedUrl} alt="분석된 사진" />
-            {analysisResult.detections.map((d, i) => {
+            {detections.map((d, i) => {
               const left = (d.box.x1 / imageSize.width) * 100;
               const top = (d.box.y1 / imageSize.height) * 100;
               const boxW = ((d.box.x2 - d.box.x1) / imageSize.width) * 100;
@@ -43,7 +47,7 @@ function ResultPage({ onNavigate, analysisResult, capturedUrl }) {
           </div>
         )}
 
-        <div className="metric-grid">
+        {hasDetection && <div className="metric-grid">
           <article className={`metric ${hasCavity ? 'watch' : 'good'}`}>
             <span>충치 의심</span>
             <strong>{cavityCount}</strong>
@@ -61,15 +65,18 @@ function ResultPage({ onNavigate, analysisResult, capturedUrl }) {
               <span>/ 100점</span>
             </article>
           )}
-        </div>
+        </div>}
 
-        <div className="notice">
-          <strong>{hasCavity ? '치과 상담을 권장해요' : '좋은 상태를 유지하고 있어요'}</strong>
+        <div className={`notice ${!hasDetection ? 'retry-notice' : ''}`}>
+          <strong>{!hasDetection ? '촬영 품질을 확인해 주세요' : hasCavity ? '지속되면 치과 상담을 권장해요' : '좋은 상태를 유지하고 있어요'}</strong>
           <br />
-          {hasCavity
-            ? '충치 의심 부위가 발견됐어요. 정확한 진단은 치과에서 받아보세요.'
+          {!hasDetection
+            ? '사진이 흔들리거나 어두우면 치아 영역을 인식하기 어려워요.'
+            : hasCavity
+            ? '이 결과는 AI 참고 지표입니다. 통증이나 변화가 지속되면 치과에서 정확한 진단을 받아보세요.'
             : '꾸준한 관리로 건강한 치아 상태를 유지해 주세요.'}
         </div>
+        {!hasDetection && <button className="login-button result-retry" onClick={() => onNavigate('camera')}>다시 촬영하기</button>}
       </div>
       <nav className="bottom-nav">
         <button className="nav-item" onClick={() => onNavigate('camera')}><span>←</span>재촬영</button>

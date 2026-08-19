@@ -41,9 +41,14 @@ from db import get_conn, init_db, now_iso
 from mailer import send_reset_password_email
 
 MODEL_PATH = BACKEND_DIR / "model" / "best.pt"
+_backend_google_client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+_frontend_google_client_id = os.getenv("REACT_APP_GOOGLE_CLIENT_ID", "").strip()
 GOOGLE_CLIENT_ID = (
-    os.getenv("GOOGLE_CLIENT_ID") or os.getenv("REACT_APP_GOOGLE_CLIENT_ID") or ""
-).strip()
+    _frontend_google_client_id
+    if not _backend_google_client_id
+    or _backend_google_client_id.lower().startswith("your-")
+    else _backend_google_client_id
+)
 KAKAO_REST_API_KEY = os.getenv("KAKAO_REST_API_KEY", "").strip()
 KAKAO_CLIENT_SECRET = os.getenv("KAKAO_CLIENT_SECRET", "").strip()
 KAKAO_REDIRECT_URI = (
@@ -51,13 +56,18 @@ KAKAO_REDIRECT_URI = (
     or os.getenv("REACT_APP_KAKAO_REDIRECT_URI")
     or "http://localhost:3000/"
 ).strip()
+FRONTEND_ORIGINS = [
+    origin.strip().rstrip("/")
+    for origin in os.getenv("FRONTEND_ORIGINS", "http://localhost:3000").split(",")
+    if origin.strip()
+]
 
 app = FastAPI(title="MatchPoint API")
 
 # React 개발 서버(localhost:3000)에서의 요청 허용
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=FRONTEND_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -103,10 +113,10 @@ class GoogleAuthRequest(BaseModel):
     credential: str
 
 
-def _user_json(user_row) -> dict:
+def _user_json(user_row, email_override: str | None = None) -> dict:
     return {
         "name": user_row["name"],
-        "email": user_row["email"],
+        "email": email_override or user_row["email"],
         "picture": user_row["picture"] or "/profile-avatar.svg",
         "memberSince": user_row["created_at"],
     }
@@ -151,9 +161,17 @@ def _social_login_response(
                 "SELECT * FROM users WHERE id = ?", (cur.lastrowid,)
             ).fetchone()
         else:
+            stored_email = row["email"]
+            if normalized_email and normalized_email != stored_email:
+                email_owner = conn.execute(
+                    "SELECT id FROM users WHERE email = ?", (normalized_email,)
+                ).fetchone()
+                if email_owner is None or email_owner["id"] == row["id"]:
+                    stored_email = normalized_email
+
             conn.execute(
-                "UPDATE users SET name = ?, picture = ? WHERE id = ?",
-                (name, picture, row["id"]),
+                "UPDATE users SET email = ?, name = ?, picture = ? WHERE id = ?",
+                (stored_email, name, picture, row["id"]),
             )
             row = conn.execute(
                 "SELECT * FROM users WHERE id = ?", (row["id"],)
@@ -161,7 +179,12 @@ def _social_login_response(
 
         token = create_session(conn, row["id"])
 
-    return {"accessToken": token, "user": _user_json(row)}
+    # 동일 이메일의 일반 계정이 이미 있어 DB에는 내부 식별용 주소를
+    # 유지하더라도, 공급자가 검증해 전달한 이메일은 화면에 표시한다.
+    return {
+        "accessToken": token,
+        "user": _user_json(row, email_override=normalized_email or None),
+    }
 
 
 @app.post("/api/auth/email")
@@ -234,7 +257,18 @@ async def auth_kakao(payload: KakaoAuthRequest):
 
     account = kakao_user.get("kakao_account") or {}
     profile = account.get("profile") or kakao_user.get("properties") or {}
-    email = account.get("email") if account.get("is_email_verified") else None
+    # Kakao can return the consented account_email without
+    # `is_email_verified` (or with a separate validity flag).  Requiring the
+    # verification flag to be exactly True discards an email that the user has
+    # already agreed to provide, leaving the local fallback address in place.
+    kakao_email = (account.get("email") or "").strip()
+    email_needs_agreement = account.get("email_needs_agreement") is True
+    email_is_invalid = account.get("is_email_valid") is False
+    email = (
+        kakao_email
+        if kakao_email and not email_needs_agreement and not email_is_invalid
+        else None
+    )
     name = profile.get("nickname") or "카카오 사용자"
     picture = profile.get("profile_image_url") or profile.get("profile_image")
 
@@ -259,7 +293,10 @@ def auth_google(payload: GoogleAuthRequest):
             GOOGLE_CLIENT_ID,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=401, detail="유효하지 않은 Google 로그인입니다.") from exc
+        raise HTTPException(
+            status_code=401,
+            detail="Google 로그인 검증에 실패했습니다. 프론트와 백엔드의 클라이언트 ID가 같은지 확인해주세요.",
+        ) from exc
 
     provider_user_id = str(google_user.get("sub", ""))
     if not provider_user_id:
@@ -349,7 +386,29 @@ def reset_password_confirm(payload: ResetPasswordConfirmRequest):
 # 자녀 프로필 (보호자 1명이 여러 자녀를 등록할 수 있음)
 # ---------------------------------------------------------------------------
 def _child_json(row) -> dict:
-    return {"id": row["id"], "name": row["name"], "createdAt": row["created_at"]}
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "birthDate": row["birth_date"],
+        "createdAt": row["created_at"],
+    }
+
+
+class ProfileUpdateRequest(BaseModel):
+    name: str
+
+
+@app.put("/api/profile")
+def update_profile(payload: ProfileUpdateRequest, user=Depends(require_user)):
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="이름을 입력해주세요.")
+
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET name = ? WHERE id = ?", (name, user["id"]))
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user["id"],)).fetchone()
+
+    return {"user": _user_json(row)}
 
 
 @app.get("/api/children")
@@ -364,6 +423,7 @@ def list_children(user=Depends(require_user)):
 
 class ChildCreateRequest(BaseModel):
     name: str
+    birthDate: str | None = None
 
 
 @app.post("/api/children")
@@ -374,10 +434,37 @@ def create_child(payload: ChildCreateRequest, user=Depends(require_user)):
 
     with get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO children (user_id, name, created_at) VALUES (?, ?, ?)",
-            (user["id"], name, now_iso()),
+            "INSERT INTO children (user_id, name, birth_date, created_at) VALUES (?, ?, ?, ?)",
+            (user["id"], name, payload.birthDate or None, now_iso()),
         )
         row = conn.execute("SELECT * FROM children WHERE id = ?", (cur.lastrowid,)).fetchone()
+
+    return _child_json(row)
+
+
+class ChildUpdateRequest(BaseModel):
+    name: str
+    birthDate: str | None = None
+
+
+@app.put("/api/children/{child_id}")
+def update_child(child_id: int, payload: ChildUpdateRequest, user=Depends(require_user)):
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="자녀 이름을 입력해주세요.")
+
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM children WHERE id = ? AND user_id = ?",
+            (child_id, user["id"]),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="자녀 정보를 찾을 수 없습니다.")
+        conn.execute(
+            "UPDATE children SET name = ?, birth_date = ? WHERE id = ?",
+            (name, payload.birthDate or None, child_id),
+        )
+        row = conn.execute("SELECT * FROM children WHERE id = ?", (child_id,)).fetchone()
 
     return _child_json(row)
 
@@ -430,6 +517,13 @@ async def analyze(
 
     if user is not None:
         with get_conn() as conn:
+            if child_id is not None:
+                child = conn.execute(
+                    "SELECT id FROM children WHERE id = ? AND user_id = ?",
+                    (child_id, user["id"]),
+                ).fetchone()
+                if child is None:
+                    raise HTTPException(status_code=400, detail="선택한 자녀 정보를 확인할 수 없습니다.")
             conn.execute(
                 """
                 INSERT INTO analysis_records
@@ -504,18 +598,36 @@ def history(child_id: int | None = Query(None), user=Depends(require_user)):
 
 
 @app.get("/api/report/summary")
-def report_summary(user=Depends(require_user)):
+def report_summary(child_id: int | None = Query(None), user=Depends(require_user)):
     with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT created_at, score FROM analysis_records WHERE user_id = ? ORDER BY created_at ASC",
-            (user["id"],),
-        ).fetchall()
+        if child_id is None:
+            rows = conn.execute(
+                "SELECT created_at, score FROM analysis_records WHERE user_id = ? ORDER BY created_at ASC",
+                (user["id"],),
+            ).fetchall()
+        else:
+            child = conn.execute(
+                "SELECT id FROM children WHERE id = ? AND user_id = ?",
+                (child_id, user["id"]),
+            ).fetchone()
+            if child is None:
+                raise HTTPException(status_code=404, detail="자녀 정보를 찾을 수 없습니다.")
+            rows = conn.execute(
+                """
+                SELECT created_at, score FROM analysis_records
+                WHERE user_id = ? AND child_id = ? ORDER BY created_at ASC
+                """,
+                (user["id"], child_id),
+            ).fetchall()
 
     total_scans = len(rows)
     current_score = rows[-1]["score"] if rows else 100
     streak_days = _calc_streak([r["created_at"] for r in rows])
     member_since_days = _days_since(user["created_at"])
     recent = rows[-7:]
+    monthly = rows[-30:]
+    current_month_average = round(sum(r["score"] for r in monthly) / len(monthly)) if monthly else None
+    score_change = rows[-1]["score"] - rows[-2]["score"] if len(rows) >= 2 else None
 
     return {
         "current_score": current_score,
@@ -526,4 +638,11 @@ def report_summary(user=Depends(require_user)):
             "labels": [_short_date(r["created_at"]) for r in recent],
             "scores": [r["score"] for r in recent],
         },
+        "monthly_trend": {
+            "labels": [_short_date(r["created_at"]) for r in monthly],
+            "scores": [r["score"] for r in monthly],
+        },
+        "monthly_average": current_month_average,
+        "score_change": score_change,
+        "attention_required": score_change is not None and score_change <= -10,
     }

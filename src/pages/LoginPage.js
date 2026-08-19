@@ -3,9 +3,25 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 const GOOGLE_SCRIPT_URL = 'https://accounts.google.com/gsi/client';
 const KAKAO_SCRIPT_URL = 'https://t1.kakaocdn.net/kakao_js_sdk/2.8.1/kakao.min.js';
 const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
-const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_ID = (process.env.REACT_APP_GOOGLE_CLIENT_ID || '').trim();
+const HAS_VALID_GOOGLE_CLIENT_ID =
+  GOOGLE_CLIENT_ID.endsWith('.apps.googleusercontent.com') &&
+  !GOOGLE_CLIENT_ID.toLowerCase().startsWith('your-');
 const KAKAO_JAVASCRIPT_KEY = process.env.REACT_APP_KAKAO_JAVASCRIPT_KEY;
 const KAKAO_REDIRECT_URI = process.env.REACT_APP_KAKAO_REDIRECT_URI || `${window.location.origin}/`;
+
+function createOAuthState() {
+  if (typeof window.crypto?.randomUUID === 'function') {
+    return window.crypto.randomUUID();
+  }
+  if (typeof window.crypto?.getRandomValues !== 'function') {
+    return null;
+  }
+
+  const bytes = new Uint8Array(16);
+  window.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
 
 function loadScript(id, src) {
   return new Promise((resolve, reject) => {
@@ -66,6 +82,10 @@ function LoginPage({ onLogin, onNavigate }) {
 
   const handleGoogleCredential = useCallback(async (response) => {
     setSocialError('');
+    if (!response?.credential) {
+      setSocialError('Google에서 로그인 인증 정보를 받지 못했습니다. 다시 시도해 주세요.');
+      return;
+    }
     setIsSocialLoading(true);
 
     try {
@@ -81,7 +101,7 @@ function LoginPage({ onLogin, onNavigate }) {
   }, [completeSocialLogin]);
 
   useEffect(() => {
-    if (!GOOGLE_CLIENT_ID || !googleButtonRef.current) return undefined;
+    if (!HAS_VALID_GOOGLE_CLIENT_ID || !googleButtonRef.current) return undefined;
     let cancelled = false;
 
     loadScript('google-identity-service', GOOGLE_SCRIPT_URL)
@@ -90,8 +110,16 @@ function LoginPage({ onLogin, onNavigate }) {
         window.google.accounts.id.initialize({
           client_id: GOOGLE_CLIENT_ID,
           callback: handleGoogleCredential,
+          ux_mode: 'popup',
+          context: 'signin',
+          auto_select: false,
+          button_auto_select: false,
+          use_fedcm_for_button: true,
         });
         googleButtonRef.current.innerHTML = '';
+        const googleButtonWidth = Math.floor(
+          googleButtonRef.current.getBoundingClientRect().width
+        );
         window.google.accounts.id.renderButton(googleButtonRef.current, {
           type: 'standard',
           theme: 'outline',
@@ -99,8 +127,9 @@ function LoginPage({ onLogin, onNavigate }) {
           text: 'continue_with',
           shape: 'rectangular',
           logo_alignment: 'left',
-          width: 340,
+          width: googleButtonWidth || 340,
           locale: 'ko',
+          click_listener: () => setSocialError(''),
         });
       })
       .catch((error) => setSocialError(error.message));
@@ -181,11 +210,17 @@ function LoginPage({ onLogin, onNavigate }) {
       return;
     }
 
-    const state = window.crypto.randomUUID();
+    const state = createOAuthState();
+    if (!state) {
+      setSocialError('안전한 로그인 요청을 만들 수 없습니다. HTTPS 또는 localhost로 접속해 주세요.');
+      return;
+    }
     sessionStorage.setItem('smileguard-kakao-state', state);
     window.Kakao.Auth.authorize({
       redirectUri: KAKAO_REDIRECT_URI,
       state,
+       scope: 'profile_nickname,profile_image,account_email',
+      prompt: 'login',
     });
   };
 
@@ -229,10 +264,10 @@ function LoginPage({ onLogin, onNavigate }) {
             <span className="kakao-symbol" aria-hidden="true">●</span>
             카카오로 계속하기
           </button>
-          {GOOGLE_CLIENT_ID ? (
+          {HAS_VALID_GOOGLE_CLIENT_ID ? (
             <div className="google-button-wrap" ref={googleButtonRef} />
           ) : (
-            <button type="button" className="social-button google-placeholder" onClick={() => setSocialError('Google 클라이언트 ID가 설정되지 않았습니다.')}>
+            <button type="button" className="social-button google-placeholder" onClick={() => setSocialError('올바른 Google 웹 애플리케이션 클라이언트 ID를 .env에 설정해 주세요.')}>
               <span className="google-symbol" aria-hidden="true">G</span>
               Google로 계속하기
             </button>
