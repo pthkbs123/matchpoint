@@ -135,7 +135,7 @@ function FindPasswordForm() {
   );
 }
 
-function FindAccountPage({ onNavigate, initialTab = 'id' }) {
+function FindAccountPage({ onNavigate, onBack, initialTab = 'id' }) {
   const [tab, setTab] = useState(initialTab);
 
   return (
@@ -144,7 +144,7 @@ function FindAccountPage({ onNavigate, initialTab = 'id' }) {
       <div className="login-decoration login-decoration-two" />
 
       <div className="login-content">
-        <button type="button" className="back-button" style={{ marginBottom: 18 }} onClick={() => onNavigate('login')}>
+        <button type="button" className="back-button" style={{ marginBottom: 18 }} onClick={onBack || (() => onNavigate('login'))}>
           ← 로그인으로
         </button>
         <p className="eyebrow">SMILEGUARD</p>

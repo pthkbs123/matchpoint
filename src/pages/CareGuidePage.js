@@ -5,12 +5,12 @@ const steps = [
   { number: '4', title: '사용한 커버는 바로 버려요', copy: '촬영이 끝난 뒤 커버를 제거하고 카메라 표면을 닦아 보관해 주세요.' },
 ];
 
-function CareGuidePage({ onNavigate }) {
+function CareGuidePage({ onNavigate, onBack }) {
   return (
     <section className="phone">
       <div className="mypage-content">
         <div className="mypage-top">
-          <button className="back-button" onClick={() => onNavigate('mypage')}>← 뒤로</button>
+          <button className="back-button" onClick={onBack || (() => onNavigate('home'))}>← 뒤로</button>
           <h1>촬영·위생 가이드</h1>
           <span className="mypage-top-space" />
         </div>

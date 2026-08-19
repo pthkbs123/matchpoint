@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../api';
 
-function ChildProfilePage({ onNavigate, token, selectedChildId, onSelectChild }) {
+function ChildProfilePage({ onNavigate, onBack, token, selectedChildId, onSelectChild }) {
   const [children, setChildren] = useState([]);
   const [name, setName] = useState('');
   const [birthDate, setBirthDate] = useState('');
@@ -66,7 +66,7 @@ function ChildProfilePage({ onNavigate, token, selectedChildId, onSelectChild })
     <section className="phone">
       <div className="mypage-content">
         <div className="mypage-top">
-          <button className="back-button" onClick={() => onNavigate('mypage')}>← 뒤로</button>
+          <button className="back-button" onClick={onBack || (() => onNavigate('mypage'))}>← 뒤로</button>
           <h1>자녀 프로필</h1>
           <span className="mypage-top-space" />
         </div>

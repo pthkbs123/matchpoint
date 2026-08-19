@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../api';
 
-function MyPage({ onNavigate, onLogout, user, token, provider }) {
+function MyPage({ onNavigate, onBack, onLogout, user, token, provider }) {
   const userName = user?.name || user?.nickname || '한이음';
   const userEmail = user?.email?.endsWith('@oauth.smileguard.local')
     ? `${provider === 'google' ? 'Google' : provider === 'kakao' ? '카카오' : '소셜'} 계정으로 로그인됨`
@@ -30,7 +30,7 @@ function MyPage({ onNavigate, onLogout, user, token, provider }) {
     <section className="phone">
       <div className="mypage-content">
         <div className="mypage-top">
-          <button className="back-button" onClick={() => onNavigate('home')}>
+          <button className="back-button" onClick={onBack || (() => onNavigate('home'))}>
             ← 뒤로
           </button>
           <h1>마이페이지</h1>

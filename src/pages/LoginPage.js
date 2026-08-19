@@ -158,13 +158,13 @@ function LoginPage({ onLogin, onNavigate }) {
 
     if (error) {
       setSocialError(params.get('error_description') || '카카오 로그인이 취소되었습니다.');
-      window.history.replaceState({}, document.title, window.location.pathname);
+      window.history.replaceState(window.history.state, document.title, window.location.pathname);
       return;
     }
     if (!code) return;
     if (!expectedState || expectedState !== returnedState) {
       setSocialError('카카오 로그인 요청을 확인할 수 없습니다. 다시 시도해 주세요.');
-      window.history.replaceState({}, document.title, window.location.pathname);
+      window.history.replaceState(window.history.state, document.title, window.location.pathname);
       return;
     }
 
@@ -179,7 +179,7 @@ function LoginPage({ onLogin, onNavigate }) {
       })
       .catch((loginError) => setSocialError(loginError.message))
       .finally(() => {
-        window.history.replaceState({}, document.title, window.location.pathname);
+        window.history.replaceState(window.history.state, document.title, window.location.pathname);
         setIsSocialLoading(false);
       });
   }, [completeSocialLogin]);

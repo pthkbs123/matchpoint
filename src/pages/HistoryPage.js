@@ -11,7 +11,7 @@ function formatDate(iso) {
   return `${date.getMonth() + 1}월 ${date.getDate()}일`;
 }
 
-function HistoryPage({ onNavigate, token, selectedChildId, onSelectChild }) {
+function HistoryPage({ onNavigate, onBack, token, selectedChildId, onSelectChild }) {
   const [children, setChildren] = useState([]);
   const [activeChildId, setActiveChildId] = useState(selectedChildId);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -98,7 +98,7 @@ function HistoryPage({ onNavigate, token, selectedChildId, onSelectChild }) {
     <section className="phone">
       <div className="mypage-content">
         <div className="mypage-top">
-          <button className="back-button" onClick={() => onNavigate('mypage')}>
+          <button className="back-button" onClick={onBack || (() => onNavigate('mypage'))}>
             ← 뒤로
           </button>
           <h1>촬영 히스토리</h1>

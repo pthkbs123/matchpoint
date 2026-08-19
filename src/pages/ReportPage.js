@@ -47,7 +47,7 @@ function scoreCopy(score) {
   return '변화가 커서 치과 상담을 권장해요.';
 }
 
-function ReportPage({ onNavigate, token, selectedChildId }) {
+function ReportPage({ onNavigate, onBack, token, selectedChildId }) {
   const [summary, setSummary] = useState(null);
   const [range, setRange] = useState('weekly');
   const [isLoading, setIsLoading] = useState(true);
@@ -97,7 +97,7 @@ function ReportPage({ onNavigate, token, selectedChildId }) {
   return (
     <section className="phone">
       <header className="report-header">
-        <button className="back-button" onClick={() => onNavigate('home')}>← 뒤로</button>
+        <button className="back-button" onClick={onBack || (() => onNavigate('home'))}>← 뒤로</button>
         <p className="eyebrow" style={{ color: '#cfe3ff' }}>HEALTH REPORT</p>
         <h1>구강 건강 리포트</h1>
         <p>{scoreCopy(currentScore)}</p>

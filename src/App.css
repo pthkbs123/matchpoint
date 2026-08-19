@@ -119,11 +119,38 @@ h1 { margin-bottom: 8px; font-size: 26px; line-height: 1.35; letter-spacing: -0.
 }
 .camera-guide { position: absolute; inset: 25% 12%; border: 2px dashed rgba(255,255,255,.7); border-radius: 80px; }
 .camera-feed { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.camera-feed.mirrored { transform: scaleX(-1); }
+.camera-view.tap-focus-enabled { cursor: crosshair; touch-action: manipulation; }
+.camera-focus-ring {
+  position: absolute; z-index: 5; width: 58px; height: 58px; border: 2px solid #ffe66d;
+  border-radius: 14px; transform: translate(-50%, -50%); pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .18), 0 0 20px rgba(255, 230, 109, .2);
+  animation: focus-pulse .42s ease-out;
+}
+.camera-focus-ring::before,
+.camera-focus-ring::after { content: ''; position: absolute; background: currentColor; }
+.camera-focus-ring::before { width: 12px; height: 2px; left: 21px; top: 26px; }
+.camera-focus-ring::after { width: 2px; height: 12px; left: 26px; top: 21px; }
+.camera-focus-ring.focused { color: #8bf0b1; border-color: #8bf0b1; }
+.camera-focus-ring.unsupported { color: #cbd5e1; border-color: #cbd5e1; border-style: dashed; }
+@keyframes focus-pulse {
+  from { opacity: .35; transform: translate(-50%, -50%) scale(1.45); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
 .camera-hint { position: absolute; left: 0; right: 0; top: 17%; text-align: center; font-size: 13px; }
 .camera-top { position: absolute; z-index: 2; left: 18px; right: 18px; top: 22px; display: flex; justify-content: space-between; }
 .dark-button { background: rgba(3,12,22,.58); color: white; backdrop-filter: blur(8px); }
-.camera-controls { height: 122px; background: #071426; display: grid; grid-template-columns: 1fr 1fr 1fr; align-items: center; text-align: center; }
+.camera-controls { height: 122px; background: #071426; display: grid; grid-template-columns: .9fr .9fr 1.15fr .9fr .9fr; align-items: center; text-align: center; padding: 0 8px; }
 .control-link { color: white; border: 0; background: none; cursor: pointer; font-weight: 700; }
+.camera-tool-button {
+  width: 48px; height: 58px; margin: auto; padding: 4px 0; border: 0; border-radius: 16px;
+  color: #dbeafe; background: transparent; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 2px; cursor: pointer;
+}
+.camera-tool-button span { font-size: 25px; line-height: 1; }
+.camera-tool-button small { font-size: 10px; font-weight: 800; }
+.camera-tool-button.active { color: #ffe66d; background: rgba(255, 230, 109, .12); }
+.camera-tool-button:disabled { color: #64748b; cursor: not-allowed; opacity: .62; }
 .shutter { width: 68px; height: 68px; margin: auto; border-radius: 50%; border: 5px solid white; background: var(--blue-500); box-shadow: inset 0 0 0 4px #071426; cursor: pointer; }
 
 .preview-label { position: absolute; left: 50%; top: 21%; transform: translateX(-50%); padding: 8px 14px; border-radius: 99px; background: rgba(3,12,22,.58); font-size: 12px; }

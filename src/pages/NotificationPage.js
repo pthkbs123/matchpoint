@@ -15,7 +15,7 @@ function SettingRow({ title, description, checked, onChange }) {
   );
 }
 
-function NotificationPage({ onNavigate }) {
+function NotificationPage({ onNavigate, onBack }) {
   const [serviceEnabled, setServiceEnabled] = useState(() => readBoolean('notif_service', true));
   const [reportEnabled, setReportEnabled] = useState(() => readBoolean('notif_report', true));
   const [nightModeEnabled, setNightModeEnabled] = useState(() => readBoolean('notif_night', true));
@@ -44,7 +44,7 @@ function NotificationPage({ onNavigate }) {
     <section className="phone">
       <div className="mypage-content">
         <div className="mypage-top">
-          <button className="back-button" onClick={() => onNavigate('mypage')}>← 뒤로</button>
+          <button className="back-button" onClick={onBack || (() => onNavigate('mypage'))}>← 뒤로</button>
           <h1>알림 설정</h1>
           <span className="mypage-top-space" />
         </div>

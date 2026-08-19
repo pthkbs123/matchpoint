@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import './App.css';
 import MainPage from './pages/MainPage';
 import CameraPage from './pages/CameraPage';
@@ -24,10 +24,13 @@ function App() {
   })();
   const resetToken = new URLSearchParams(window.location.search).get('resetToken');
   const [session, setSession] = useState(savedSession);
-  const [page, setPage] = useState(() => {
+  const initialPage = (() => {
     if (resetToken) return 'reset-password';
     return savedSession ? 'home' : 'login';
-  });
+  })();
+  const [page, setPage] = useState(initialPage);
+  const pageRef = useRef(initialPage);
+  const sessionRef = useRef(savedSession);
   const [capturedBlob, setCapturedBlob] = useState(null);
   const [capturedUrl, setCapturedUrl] = useState(null);
   const [analysisResult, setAnalysisResult] = useState(null);
@@ -35,6 +38,78 @@ function App() {
     const saved = localStorage.getItem('smileguard-selected-child');
     return saved ? Number(saved) : null;
   });
+
+  const navigate = useCallback((nextPage, options = {}) => {
+    if (!nextPage) return;
+    const { replace = false, resetDepth = false } = options;
+    if (!replace && nextPage === pageRef.current) return;
+
+    const currentState = window.history.state || {};
+    const currentDepth = Number(currentState.smileguardDepth) || 0;
+    let nextDepth = currentDepth + 1;
+    if (replace) nextDepth = currentDepth;
+    if (resetDepth) nextDepth = 0;
+    const nextState = {
+      ...currentState,
+      smileguardPage: nextPage,
+      smileguardDepth: nextDepth,
+    };
+
+    window.history[replace ? 'replaceState' : 'pushState'](
+      nextState,
+      document.title,
+      window.location.href
+    );
+    pageRef.current = nextPage;
+    setPage(nextPage);
+  }, []);
+
+  const goBack = useCallback((fallbackPage = 'home') => {
+    const depth = Number(window.history.state?.smileguardDepth) || 0;
+    if (depth > 0) {
+      window.history.back();
+      return;
+    }
+    navigate(fallbackPage, { replace: true });
+  }, [navigate]);
+
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+
+  useEffect(() => {
+    const currentState = window.history.state || {};
+    window.history.replaceState(
+      {
+        ...currentState,
+        smileguardPage: pageRef.current,
+        smileguardDepth: Number(currentState.smileguardDepth) || 0,
+      },
+      document.title,
+      window.location.href
+    );
+
+    const handlePopState = (event) => {
+      const nextPage = event.state?.smileguardPage;
+      if (nextPage) {
+        pageRef.current = nextPage;
+        setPage(nextPage);
+        return;
+      }
+
+      const fallbackPage = sessionRef.current ? 'home' : 'login';
+      window.history.replaceState(
+        { smileguardPage: fallbackPage, smileguardDepth: 0 },
+        document.title,
+        window.location.href
+      );
+      pageRef.current = fallbackPage;
+      setPage(fallbackPage);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   useEffect(() => {
     const scrollContainer = document.querySelector('.page-content, .mypage-content, .report-body');
@@ -68,14 +143,14 @@ function App() {
     sessionStorage.removeItem('smileguard-session');
     storage.setItem('smileguard-session', JSON.stringify(nextSession));
     setSession(nextSession);
-    setPage('home');
+    navigate('home', { replace: true, resetDepth: true });
   };
 
   const handleLogout = () => {
     localStorage.removeItem('smileguard-session');
     sessionStorage.removeItem('smileguard-session');
     setSession(null);
-    setPage('login');
+    navigate('login', { replace: true, resetDepth: true });
   };
 
   const handleUserUpdate = (user) => {
@@ -89,31 +164,31 @@ function App() {
   };
 
   const pages = {
-    login: <LoginPage onLogin={handleLogin} onNavigate={setPage} />,
-    signup: <SignUpPage onNavigate={setPage} />,
-    'find-id': <FindAccountPage onNavigate={setPage} initialTab="id" />,
-    'find-password': <FindAccountPage onNavigate={setPage} initialTab="password" />,
-    'reset-password': <ResetPasswordPage onNavigate={setPage} token={resetToken} />,
-    home: <MainPage onNavigate={setPage} user={session?.user} token={session?.accessToken} selectedChildId={selectedChildId} onSelectChild={handleSelectChild} />,
-    mypage: <MyPage onNavigate={setPage} user={session?.user} provider={session?.provider} token={session?.accessToken} onLogout={handleLogout} />,
-    history: <HistoryPage onNavigate={setPage} token={session?.accessToken} selectedChildId={selectedChildId} onSelectChild={handleSelectChild} />,
-    notification: <NotificationPage onNavigate={setPage} />,
-    profile: <ProfilePage onNavigate={setPage} user={session?.user} provider={session?.provider} token={session?.accessToken} onUserUpdate={handleUserUpdate} />,
-    'child-profile': <ChildProfilePage onNavigate={setPage} token={session?.accessToken} selectedChildId={selectedChildId} onSelectChild={handleSelectChild} />,
-    'care-guide': <CareGuidePage onNavigate={setPage} />,
-    camera: <CameraPage onNavigate={setPage} onCapture={handleCapture} token={session?.accessToken} selectedChildId={selectedChildId} />,
-    preview: <CapturePreviewPage onNavigate={setPage} capturedUrl={capturedUrl} />,
+    login: <LoginPage onLogin={handleLogin} onNavigate={navigate} />,
+    signup: <SignUpPage onNavigate={navigate} />,
+    'find-id': <FindAccountPage onNavigate={navigate} onBack={() => goBack('login')} initialTab="id" />,
+    'find-password': <FindAccountPage onNavigate={navigate} onBack={() => goBack('login')} initialTab="password" />,
+    'reset-password': <ResetPasswordPage onNavigate={navigate} token={resetToken} />,
+    home: <MainPage onNavigate={navigate} user={session?.user} token={session?.accessToken} selectedChildId={selectedChildId} onSelectChild={handleSelectChild} />,
+    mypage: <MyPage onNavigate={navigate} onBack={() => goBack('home')} user={session?.user} provider={session?.provider} token={session?.accessToken} onLogout={handleLogout} />,
+    history: <HistoryPage onNavigate={navigate} onBack={() => goBack('mypage')} token={session?.accessToken} selectedChildId={selectedChildId} onSelectChild={handleSelectChild} />,
+    notification: <NotificationPage onNavigate={navigate} onBack={() => goBack('mypage')} />,
+    profile: <ProfilePage onNavigate={navigate} onBack={() => goBack('mypage')} user={session?.user} provider={session?.provider} token={session?.accessToken} onUserUpdate={handleUserUpdate} />,
+    'child-profile': <ChildProfilePage onNavigate={navigate} onBack={() => goBack('mypage')} token={session?.accessToken} selectedChildId={selectedChildId} onSelectChild={handleSelectChild} />,
+    'care-guide': <CareGuidePage onNavigate={navigate} onBack={() => goBack('home')} />,
+    camera: <CameraPage onNavigate={navigate} onBack={() => goBack('home')} onCapture={handleCapture} token={session?.accessToken} selectedChildId={selectedChildId} />,
+    preview: <CapturePreviewPage onNavigate={navigate} onBack={() => goBack('camera')} capturedUrl={capturedUrl} />,
     analyzing: (
       <AnalyzingPage
-        onNavigate={setPage}
+        onNavigate={navigate}
         capturedBlob={capturedBlob}
         token={session?.accessToken}
         selectedChildId={selectedChildId}
         onAnalysisComplete={setAnalysisResult}
       />
     ),
-    result: <ResultPage onNavigate={setPage} analysisResult={analysisResult} capturedUrl={capturedUrl} />,
-    report: <ReportPage onNavigate={setPage} token={session?.accessToken} selectedChildId={selectedChildId} />,
+    result: <ResultPage onNavigate={navigate} analysisResult={analysisResult} capturedUrl={capturedUrl} />,
+    report: <ReportPage onNavigate={navigate} onBack={() => goBack('home')} token={session?.accessToken} selectedChildId={selectedChildId} />,
   };
 
   return <main className="app-shell">{pages[page]}</main>;

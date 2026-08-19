@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-function ProfilePage({ onNavigate, user, provider }) {
+function ProfilePage({ onNavigate, onBack, user, provider }) {
   const [userName, setUserName] = useState(() =>
     localStorage.getItem('user_name') || user?.name || '사용자'
   );
@@ -42,7 +42,8 @@ function ProfilePage({ onNavigate, user, provider }) {
     localStorage.setItem('user_name', userName);
     localStorage.setItem('user_phone', userPhone);
     alert('프로필 정보가 성공적으로 저장되었습니다.');
-    if (onNavigate) onNavigate('mypage');
+    if (onBack) onBack();
+    else if (onNavigate) onNavigate('mypage');
   };
 
   const handleChangePassword = (event) => {
@@ -79,7 +80,7 @@ function ProfilePage({ onNavigate, user, provider }) {
         <div className="mypage-top">
           <button
             className="back-button"
-            onClick={() => onNavigate ? onNavigate('mypage') : window.history.back()}
+            onClick={() => onBack ? onBack() : onNavigate ? onNavigate('mypage') : window.history.back()}
           >
             ← 뒤로
           </button>
