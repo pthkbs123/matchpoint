@@ -1,123 +1,124 @@
-import React, { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { apiFetch } from '../api';
+import { markNotificationsRead } from '../notificationStorage';
 
-function NotificationPage({ onNavigate }) {
-  // 1. 서비스 & 리포트 알림 (핵심 서비스 알림)
-  const [serviceEnabled, setServiceEnabled] = useState(() => {
-    const saved = localStorage.getItem('notif_service');
-    return saved !== null ? JSON.parse(saved) : true; // 기본값: true
-  });
+function readBoolean(key, fallback) {
+  const value = localStorage.getItem(key);
+  return value == null ? fallback : value === 'true';
+}
 
-  // 2. 주간 리포트 알림 (기존 이메일 알림 대체)
-  const [reportEnabled, setReportEnabled] = useState(() => {
-    const saved = localStorage.getItem('notif_report');
-    return saved !== null ? JSON.parse(saved) : false; // 기본값: false
-  });
+function SettingRow({ title, description, checked, onChange }) {
+  return (
+    <label className="setting-row">
+      <span><strong>{title}</strong><small>{description}</small></span>
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <i aria-hidden="true" />
+    </label>
+  );
+}
 
-  // 3. 마케팅 정보 수신
-  const [marketingEnabled, setMarketingEnabled] = useState(() => {
-    const saved = localStorage.getItem('notif_marketing');
-    return saved !== null ? JSON.parse(saved) : false; // 기본값: false
-  });
+function NotificationPage({ onNavigate, onBack, user, token, selectedChildId }) {
+  const [serviceEnabled, setServiceEnabled] = useState(() => readBoolean('notif_service', true));
+  const [reportEnabled, setReportEnabled] = useState(() => readBoolean('notif_report', true));
+  const [nightModeEnabled, setNightModeEnabled] = useState(() => readBoolean('notif_night', true));
+  const [reportDay, setReportDay] = useState(() => localStorage.getItem('notif_report_day') || '월요일');
+  const [permission, setPermission] = useState(() => ('Notification' in window ? Notification.permission : 'unsupported'));
+  const [notifications, setNotifications] = useState([]);
+  const [isLoadingNotifications, setIsLoadingNotifications] = useState(true);
 
-  // 4. 야간 알림 제한 (법적 기준: 21시~08시)
-  const [nightModeEnabled, setNightModeEnabled] = useState(() => {
-    const saved = localStorage.getItem('notif_night');
-    return saved !== null ? JSON.parse(saved) : true; // 기본값: true
-  });
-
-  // localStorage 자동 저장
-  useEffect(() => {
-    localStorage.setItem('notif_service', JSON.stringify(serviceEnabled));
-  }, [serviceEnabled]);
-
-  useEffect(() => {
-    localStorage.setItem('notif_report', JSON.stringify(reportEnabled));
-  }, [reportEnabled]);
+  useEffect(() => { localStorage.setItem('notif_service', String(serviceEnabled)); }, [serviceEnabled]);
+  useEffect(() => { localStorage.setItem('notif_report', String(reportEnabled)); }, [reportEnabled]);
+  useEffect(() => { localStorage.setItem('notif_night', String(nightModeEnabled)); }, [nightModeEnabled]);
+  useEffect(() => { localStorage.setItem('notif_report_day', reportDay); }, [reportDay]);
 
   useEffect(() => {
-    localStorage.setItem('notif_marketing', JSON.stringify(marketingEnabled));
-  }, [marketingEnabled]);
+    if (!token) {
+      setIsLoadingNotifications(false);
+      return undefined;
+    }
 
-  useEffect(() => {
-    localStorage.setItem('notif_night', JSON.stringify(nightModeEnabled));
-  }, [nightModeEnabled]);
+    let cancelled = false;
+    const query = selectedChildId ? `?child_id=${selectedChildId}` : '';
+    apiFetch(`/api/report/summary${query}`, { token })
+      .then((data) => {
+        if (cancelled) return;
+        const nextNotifications = data.notifications || [];
+        setNotifications(nextNotifications);
+        markNotificationsRead(nextNotifications, user, selectedChildId);
+      })
+      .catch(() => { if (!cancelled) setNotifications([]); })
+      .finally(() => { if (!cancelled) setIsLoadingNotifications(false); });
+
+    return () => { cancelled = true; };
+  }, [token, user, selectedChildId]);
+
+  const requestPermission = async () => {
+    if (!('Notification' in window)) return;
+    const result = await Notification.requestPermission();
+    setPermission(result);
+  };
+
+  const permissionCopy = {
+    granted: '브라우저 알림이 허용되어 있어요.',
+    denied: '브라우저 설정에서 알림 권한을 다시 허용해 주세요.',
+    default: '주간 리포트를 받으려면 알림 권한이 필요해요.',
+    unsupported: '현재 브라우저는 알림 기능을 지원하지 않아요.',
+  }[permission];
+
+  const notificationHistory = (
+    <section className="notification-history">
+      <div className="card-head"><h2>알림 내역</h2><span>최근 30일</span></div>
+      {isLoadingNotifications ? (
+        <p className="page-state">알림 내역을 불러오는 중이에요...</p>
+      ) : notifications.length > 0 ? (
+        <div className="notification-history-list">
+          {notifications.map((notification) => (
+            <article className="notification-history-item" key={notification.id}>
+              <span className="notification-history-icon">!</span>
+              <div>
+                <small>{notification.date_label}</small>
+                <strong>{notification.title}</strong>
+                <p>{notification.message}</p>
+              </div>
+              <b>{notification.score_change}점</b>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-notification"><span>✓</span><strong>새로운 주의 알림이 없어요</strong><p>변화가 감지되면 이곳에서 다시 확인할 수 있어요.</p></div>
+      )}
+    </section>
+  );
 
   return (
     <section className="phone">
       <div className="mypage-content">
-        
-        {/* 상단 헤더 영역 */}
         <div className="mypage-top">
-          <button 
-            className="back-button" 
-            onClick={() => onNavigate ? onNavigate('mypage') : window.history.back()}
-          >
-            ← 뒤로
-          </button>
-          <h1>알림 설정</h1>
+          <button className="back-button" onClick={onBack || (() => onNavigate('mypage'))}>← 뒤로</button>
+          <h1>알림</h1>
           <span className="mypage-top-space" />
         </div>
 
-        {/* 설정 항목 리스트 */}
-        <div className="settings-list" style={{ marginTop: '10px' }}>
-          
-          {/* 1. 핵심 서비스 알림 */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 0', borderBottom: '1px solid #f0f0f0' }}>
-            <div>
-              <div style={{ fontWeight: '600', fontSize: '1rem', color: '#111' }}>주요 기능 알림</div>
-              <div style={{ fontSize: '0.825rem', color: '#767676', marginTop: '4px' }}>새로운 분석 결과 및 주요 기능 알림을 받습니다.</div>
-            </div>
-            <input 
-              type="checkbox" 
-              checked={serviceEnabled} 
-              onChange={(e) => setServiceEnabled(e.target.checked)}
-              style={{ width: '20px', height: '20px', accentColor: '#2563eb', cursor: 'pointer' }}
-            />
-          </div>
+        {notificationHistory}
 
-          {/* 2. 주간 리포트 알림 */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 0', borderBottom: '1px solid #f0f0f0' }}>
-            <div>
-              <div style={{ fontWeight: '600', fontSize: '1rem', color: '#111' }}>주간 리포트 알림</div>
-              <div style={{ fontSize: '0.825rem', color: '#767676', marginTop: '4px' }}>한 주간의 데이터 분석 및 요약 리포트를 알립니다.</div>
-            </div>
-            <input 
-              type="checkbox" 
-              checked={reportEnabled} 
-              onChange={(e) => setReportEnabled(e.target.checked)}
-              style={{ width: '20px', height: '20px', accentColor: '#2563eb', cursor: 'pointer' }}
-            />
-          </div>
-
-          {/* 3. 마케팅 정보 수신 */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 0', borderBottom: '1px solid #f0f0f0' }}>
-            <div>
-              <div style={{ fontWeight: '600', fontSize: '1rem', color: '#111' }}>마케팅 정보 수신</div>
-              <div style={{ fontSize: '0.825rem', color: '#767676', marginTop: '4px' }}>이벤트, 혜택 및 신규 기능 소식을 받습니다.</div>
-            </div>
-            <input 
-              type="checkbox" 
-              checked={marketingEnabled} 
-              onChange={(e) => setMarketingEnabled(e.target.checked)}
-              style={{ width: '20px', height: '20px', accentColor: '#2563eb', cursor: 'pointer' }}
-            />
-          </div>
-
-          {/* 4. 야간 알림 제한 */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 0' }}>
-            <div>
-              <div style={{ fontWeight: '600', fontSize: '1rem', color: '#111' }}>야간 알림 제한</div>
-              <div style={{ fontSize: '0.825rem', color: '#767676', marginTop: '4px' }}>야간 시간대(21:00 ~ 08:00) 알림 수신을 제한합니다.</div>
-            </div>
-            <input 
-              type="checkbox" 
-              checked={nightModeEnabled} 
-              onChange={(e) => setNightModeEnabled(e.target.checked)}
-              style={{ width: '20px', height: '20px', accentColor: '#2563eb', cursor: 'pointer' }}
-            />
-          </div>
-
+        <div className={`push-status ${permission}`}>
+          <span>◌</span>
+          <div><strong>Web Push 알림</strong><p>{permissionCopy}</p></div>
+          {permission === 'default' && <button onClick={requestPermission}>허용</button>}
         </div>
+
+        <div className="settings-list">
+          <SettingRow title="상태 변화 알림" description="이전 기록보다 큰 변화가 감지되면 알려드려요." checked={serviceEnabled} onChange={setServiceEnabled} />
+          <SettingRow title="주간 리포트" description="한 주간의 촬영 횟수와 점수 변화를 요약해요." checked={reportEnabled} onChange={setReportEnabled} />
+          <SettingRow title="야간 알림 제한" description="오후 9시부터 오전 8시까지 알림을 보내지 않아요." checked={nightModeEnabled} onChange={setNightModeEnabled} />
+        </div>
+
+        <label className="report-day-field">
+          <span><strong>주간 리포트 받는 날</strong><small>매주 선택한 요일 오전에 요약 알림을 보내요.</small></span>
+          <select value={reportDay} onChange={(event) => setReportDay(event.target.value)} disabled={!reportEnabled}>
+            {['월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일'].map((day) => <option key={day}>{day}</option>)}
+          </select>
+        </label>
       </div>
     </section>
   );

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { API_BASE } from '../api';
 
-function AnalyzingPage({ onNavigate, capturedBlob, token, onAnalysisComplete }) {
+function AnalyzingPage({ onNavigate, capturedBlob, token, selectedChildId, onAnalysisComplete }) {
   const [error, setError] = useState(null);
   const hasSubmittedRef = useRef(false);
 
@@ -19,6 +19,7 @@ function AnalyzingPage({ onNavigate, capturedBlob, token, onAnalysisComplete }) 
 
     const formData = new FormData();
     formData.append('file', capturedBlob, 'capture.jpg');
+    if (selectedChildId != null) formData.append('child_id', String(selectedChildId));
 
     const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
 

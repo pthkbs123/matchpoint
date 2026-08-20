@@ -11,9 +11,9 @@ function formatDate(iso) {
   return `${date.getMonth() + 1}월 ${date.getDate()}일`;
 }
 
-function HistoryPage({ onNavigate, token }) {
+function HistoryPage({ onNavigate, onBack, token, selectedChildId, onSelectChild }) {
   const [children, setChildren] = useState([]);
-  const [selectedChildId, setSelectedChildId] = useState(null);
+  const [activeChildId, setActiveChildId] = useState(selectedChildId);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [records, setRecords] = useState([]);
   const [newChildName, setNewChildName] = useState('');
@@ -32,7 +32,11 @@ function HistoryPage({ onNavigate, token }) {
         if (cancelled) return;
         const list = data.children || [];
         setChildren(list);
-        if (list.length > 0) setSelectedChildId(list[0].id);
+        if (list.length > 0) {
+          const nextId = list.some((child) => child.id === selectedChildId) ? selectedChildId : list[0].id;
+          setActiveChildId(nextId);
+          onSelectChild(nextId);
+        }
       })
       .catch((err) => {
         if (!cancelled) setError(err.message);
@@ -43,16 +47,16 @@ function HistoryPage({ onNavigate, token }) {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, selectedChildId, onSelectChild]);
 
   useEffect(() => {
-    if (!token || selectedChildId == null) {
+    if (!token || activeChildId == null) {
       setRecords([]);
       return undefined;
     }
     let cancelled = false;
     setIsLoadingRecords(true);
-    apiFetch(`/api/history?child_id=${selectedChildId}`, { token })
+    apiFetch(`/api/history?child_id=${activeChildId}`, { token })
       .then((data) => {
         if (!cancelled) setRecords(data.records || []);
       })
@@ -65,7 +69,7 @@ function HistoryPage({ onNavigate, token }) {
     return () => {
       cancelled = true;
     };
-  }, [token, selectedChildId]);
+  }, [token, activeChildId]);
 
   const handleAddChild = async (event) => {
     event.preventDefault();
@@ -80,20 +84,21 @@ function HistoryPage({ onNavigate, token }) {
         body: JSON.stringify({ name }),
       });
       setChildren((prev) => [...prev, child]);
-      setSelectedChildId(child.id);
+      setActiveChildId(child.id);
+      onSelectChild(child.id);
       setNewChildName('');
     } catch (err) {
       setError(err.message);
     }
   };
 
-  const selectedChild = children.find((child) => child.id === selectedChildId);
+  const selectedChild = children.find((child) => child.id === activeChildId);
 
   return (
     <section className="phone">
       <div className="mypage-content">
         <div className="mypage-top">
-          <button className="back-button" onClick={() => onNavigate('mypage')}>
+          <button className="back-button" onClick={onBack || (() => onNavigate('mypage'))}>
             ← 뒤로
           </button>
           <h1>촬영 히스토리</h1>
@@ -139,9 +144,10 @@ function HistoryPage({ onNavigate, token }) {
                     <button
                       type="button"
                       key={child.id}
-                      className={`child-selector-item ${child.id === selectedChildId ? 'active' : ''}`}
+                      className={`child-selector-item ${child.id === activeChildId ? 'active' : ''}`}
                       onClick={() => {
-                        setSelectedChildId(child.id);
+                        setActiveChildId(child.id);
+                        onSelectChild(child.id);
                         setIsDropdownOpen(false);
                       }}
                     >

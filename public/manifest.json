@@ -1,6 +1,6 @@
 {
   "short_name": "SmileGuard",
-  "name": "SmileGuard - 충치 탐지",
+  "name": "SmileGuard 어린이 구강 건강 관리 및 충치 탐지",
   "icons": [
     {
       "src": "favicon.ico",
@@ -23,7 +23,8 @@
   "start_url": ".",
   "scope": ".",
   "display": "standalone",
-  "orientation": "portrait",
-  "theme_color": "#0f172a",
-  "background_color": "#ffffff"
+  "orientation": "portrait-primary",
+  "theme_color": "#1769d2",
+  "background_color": "#f5f9ff",
+  "description": "구강 촬영 결과와 변화 추이를 보호자가 확인하는 SmileGuard PWA"
 }
