@@ -38,7 +38,7 @@ model.train(
     epochs=120,
     imgsz=640,
     batch=64,
-    patience=20,
+    patience=50,
     project="/kaggle/working/runs/detect",
     name="cavity_train_runE",
     device=[0, 1],

@@ -1,6 +1,30 @@
-# 충치 탐지 모델 학습 — 진행 상황 (2026-08-18 갱신)
+# 충치 탐지 모델 학습 — 진행 상황 (2026-08-20 갱신)
 
 새 컴퓨터/새 Claude Code 세션에서 이 프로젝트를 이어갈 때 이 파일부터 읽으면 맥락 파악이 됩니다.
+
+## 지금 당장 이어서 할 일 (2026-08-20 세션, 진행 중 — 미완료)
+**작업 중 이 학교 컴퓨터가 멈춰서 재부팅할 위험이 있어 미리 기록해둠.**
+
+1. **`dataset_runE` 학습이 조기종료로 실패한 걸 발견함** — 원인: `pc_setup/training/kaggle_train_runE.py`가 runD의 `best.pt`를 이어받아 학습하는데, 1 epoch째에 이미 mAP50-95=0.4686을 찍은 뒤 20 epoch 동안 그걸 못 넘어서 `patience=20` 때문에 **21 epoch만에 조기종료됨**. 저장된 "best"가 사실상 거의 학습 안 된, runD 가중치 그대로에 가까운 체크포인트였음 (runE 데이터가 나쁜 게 아니라 조기종료 설정 문제로 결론)
+   - **조치 완료**: `pc_setup/training/kaggle_train_runE.py:41`의 `patience=20` → **`patience=50`으로 수정함** (이 파일 그대로 Kaggle에 다시 붙여넣으면 됨)
+   - **Kaggle 쪽 `best.pt`는 이미 runD 버전 그대로 있음** (사용자가 runE 실행 이후로 갱신 안 함) — 그러니 Kaggle에 새로 업로드할 필요 없이, 고친 스크립트만 다시 실행하면 됨
+   - 로컬 `pc_setup/backend/model/best.pt`는 한때 이 미완성 runE 결과로 교체했었으나 **다시 runD로 되돌려놓음** (`best_runD_backup.pt`가 원본 백업, mAP50=0.698). 지금 `best.pt` = runD 맞음.
+
+2. **cavity 클래스 성능이 크게 낮다는 것을 검증 완료함** (팀원 증언 확인됨) — `best_runD_backup.pt`(=현재 `best.pt`)를 `dataset_runD` valid set(6,059장)으로 재검증한 결과:
+   | 클래스 | Precision | Recall | mAP50 |
+   |---|---|---|---|
+   | cavity | 0.589 | **0.397** | 0.455 |
+   | normal | 0.733 | 0.954 | 0.940 |
+
+   전체 평균 mAP50=0.698이 normal의 높은 성능(0.94)에 가려져서 cavity 문제(mAP50=0.455, recall 0.40)를 숨기고 있었음. 실제 서비스에서 충치를 잘 못 잡는다는 사용자 팀원 피드백과 정확히 일치.
+   - 추정 원인(미확정): valid 기준 cavity 인스턴스(15,397개)가 normal(26,046개)보다 1.7배 적어서 학습이 normal 쪽에 유리했을 가능성 + cavity 병변 자체가 형태 다양성이 커서 본질적으로 더 어려운 태스크일 가능성 + 서비스 코드의 `conf=0.25` 임계값이 실제 recall을 더 깎을 가능성. **어느 게 진짜 원인인지는 아래 3번 데이터셋 감사로 확인할 계획.**
+
+3. **다음 작업: YOLO 데이터셋 감사(audit) 파이프라인 구축 — 사용자가 다른 AI에게 받은 스펙 검토 완료, 이대로 진행하기로 합의함.** 목적: 3만 장 이상 데이터를 사람이 직접 다 안 봐도 되게, 라벨 오류/모델 취약 샘플 후보를 자동 선별해서 ChatGPT가 육안 1차 검수할 수 있는 contact sheet + CSV로 정리.
+   - **핵심 설계 결정 (사용자와 합의됨)**:
+     - **1차는 train(28,898장) 전체가 아니라 valid(6,059장)만 우선 감사** — best.pt가 train으로 학습됐으니 train 추론은 신호가 흐림. valid 결과 보고 필요하면 train으로 확장.
+     - **추론은 Kaggle(T4 x2)에서, 결과 정리/시각화는 이 로컬 컴퓨터(CPU)에서** — 이 컴퓨터 GPU는 **GTX 1060 3GB**(PROGRESS.md에 예전에 GTX 1660으로 잘못 적혀있었음, 2026-08-20에 `torch.cuda.get_device_name()`으로 실측 정정함)라 VRAM이 작아서 몇만 장 추론에 부적합. Kaggle에서는 예측+GT 매칭 결과를 **가벼운 csv/json으로만** 추출해서 다운로드하고, contact sheet 그리기(이미지에 박스 그리는 것)는 로컬 CPU로 충분함.
+   - **아직 스크립트 작성 시작 전** — 다음 세션에서 이어가려면: (1) Kaggle용 추론+매칭 스크립트(`pc_setup/training/`에 만들 예정, 아직 없음) 먼저 작성 → (2) 로컬용 contact sheet/CSV 생성 스크립트(`pc_setup/dataset_audit/scripts/`) 작성. 사용자가 준 원본 스펙(오류 타입 A~I 분류, review_score, HIGH/MEDIUM/LOW, batch당 500장, contact sheet 16~25장 등)은 대부분 그대로 따르기로 함.
+   - 원칙(사용자가 강조함, 반드시 지킬 것): 원본 이미지/라벨/`best.pt` 절대 수정 금지, AI가 GT 자동 수정 금지, 결과는 전부 별도 폴더(`pc_setup/dataset_audit/`)에 저장.
 
 ## PWA 구현 (2026-08-18, 로컬 커밋만 완료 — origin에 아직 push 안 함)
 - **커밋**: `ae301fe` "PWA 지원 추가: 매니페스트, 서비스 워커, 설치 가능성" (로컬 main 브랜치, origin/main엔 미반영)
@@ -24,7 +48,7 @@
 - GitHub: origin=`pthkbs123/matchpoint`, upstream=`yuly0531/matchpoint`
 
 ## 왜 로컬이 아니라 Kaggle 클라우드에서 학습하나
-- 이 PC(학교 컴퓨터)는 GPU가 GTX 1660 하나뿐이고 내장그래픽(iGPU)이 없어서, 화면 출력과 학습 연산을 같은 GPU가 담당함
+- 이 PC(학교 컴퓨터)는 GPU가 GTX 1060 3GB 하나뿐이고(2026-08-20 실측 정정 — 예전 기록엔 GTX 1660으로 잘못 적혀있었음) 내장그래픽(iGPU)이 없어서, 화면 출력과 학습 연산을 같은 GPU가 담당함
 - 로컬에서 학습 돌리면 WDDM/TDR 충돌로 화면이 완전히 멈추는 문제 발생 (2시간 방치해도 안 풀림 → 강제 재부팅 필요했음)
 - 학교 컴퓨터라 재부팅하면 상태가 초기화돼서 WSL2 같은 재부팅 필요한 해결책도 못 씀
 - → **Kaggle Notebook의 무료 GPU(T4 x2)에서 학습하는 방식으로 전환**. 로컬 PC는 "데이터셋 가공 + Kaggle 업로드"만 담당
@@ -67,7 +91,7 @@
 - `caries detection.v1i.yolov8` (Roboflow, 원래 2,495장인데 `DentalCaries.v2i`와 md5 기준 1,996장(80%)이 완전히 동일한 이미지라 **중복 제거하고 499장만 사용**. 클래스 0=Caries/1=Cavity→cavity, 3=Tooth→normal, 2=Crack 제외)
 - Zenodo `Benchmarking Dataset` (6,266장 중 **yolo 라벨 파일이 있고 내용도 있는 2,164장만 사용**. 나머지 4,102장은 라벨 파일 자체가 없어서 정상인지 라벨 누락인지 알 수 없어 제외. 클래스 0/1(유치/영구치 충치) 모두 → cavity. **이 소스는 normal 기여가 전혀 없음**, 충치 있는 사진만 있어서)
 - **결과: train 35,690 / valid 6,315 / test 3,539장**
-- **Kaggle 아직 학습 안 함** (`dataset_runE.zip` 로컬 `pc_setup/`에 생성 완료, Kaggle 업로드 대기 중)
+- **Kaggle 학습 1차 시도함 (2026-08-18~20) — 실패(조기종료), 원인 파악 완료, 재시도 대기 중.** 자세한 내용은 파일 맨 위 "지금 당장 이어서 할 일" 참고. 1차 결과(참고용, 실제 쓰면 안 됨): mAP50=0.690, mAP50-95=0.469 — `patience=20` 조기종료로 1 epoch째 수준에서 거의 안 움직인 값이라 의미 없음. `patience=50`으로 고쳐서 재학습 예정.
 
 ## Kaggle 노트북 학습 스크립트 방식
 - `pc_setup/training/kaggle_train_runC.py`, `pc_setup/training/kaggle_train_runD.py` — Kaggle 노트북 셀에 붙여넣는 스크립트
@@ -75,13 +99,11 @@
 - **매 라운드마다 직전 라운드의 `best.pt`를 이어받아 `model.train()` 다시 호출하는 방식** — 진짜 resume(중단 지점부터 재개)이 아니라 그 가중치로 처음부터 다시 학습하는 것이므로 매번 실제 GPU 시간을 다 씀 (주의)
 
 ## 다음에 할 일 (우선순위 순)
-1. **`dataset_runE.zip`을 Kaggle `hanium_dataset`에 `+ New Version`으로 업로드** — `pc_setup/dataset_runE.zip` (1.6GB) 로컬에 생성 완료, 아직 Kaggle 업로드 전
-2. Kaggle에서 `pc_setup/training/kaggle_train_runE.py` 돌리기 (이미 멀티 GPU `device=[0,1]` 적용해서 만들어둠, `cavity_train_runE` 이름으로 저장됨)
-3. **Kaggle 재학습 전 필수 확인**: 노트북 Input에 새로 올린 `dataset_runE`와 현재 `best.pt`(runD 결과)가 잡혀있는지 확인
-4. 학습 끝나면 runD(mAP50=0.698) 대비 얼마나 개선됐는지 비교하고, `pc_setup/backend/model/best.pt` 교체
-5. (테스트 이슈, 미해결) 사용자가 노트북 웹캠으로 입 사진 찍어서 테스트했더니 충치 탐지가 "놓침" 현상 있었음. `pc_setup/backend/main.py:411`의 `model.predict(image, conf=0.25, ...)` — confidence threshold 때문에 화질/조명 다른 웹캠 사진에서 낮은 확률로 탐지된 게 걸러졌을 가능성이 있음. 실제 테스트 사진으로 낮은 conf(0.01~0.05)로 재확인 필요 (아직 사진 못 받아서 미해결 상태)
-6. (로드맵, 아직 미착수) 사용자가 로컬 PC 의존도를 더 줄이고 싶어함 — 지금은 "로컬에서 병합 스크립트 실행 → zip → Kaggle 업로드" 흐름인데, 이걸 Kaggle 노트북 안에서 직접 병합까지 하도록 바꾸면 로컬 PC는 "새 원본 데이터셋 다운받아서 Kaggle에 업로드"만 하면 되므로 어느 컴퓨터에서 작업하든 상관없어짐. 사용자가 원하면 이 방식으로 전환 가능
-7. 사용자가 집 컴퓨터(GPU 사양 미확인, iGPU 여부도 미확인)로 로컬 학습을 시도해볼 수도 있음 — 로컬 학습 스크립트가 아직 없어서(지금까지 전부 Kaggle 전용) 필요하면 새로 작성해야 함. iGPU 없으면 학교 PC와 같은 화면 멈춤 위험 있다고 미리 안내해둠
+1. **데이터셋 감사(audit) 파이프라인 만들기** — 맨 위 "지금 당장 이어서 할 일" 3번 참고. 아직 스크립트 작성 시작 전.
+2. **`dataset_runE` 재학습** — `kaggle_train_runE.py`는 이미 `patience=50`으로 고쳐놨음. Kaggle 쪽 Input(`best.pt`=runD, `dataset_runE`)은 그대로 재사용 가능, 새로 업로드할 필요 없음. 학습 끝나면 runD(mAP50=0.698) 대비 비교하고 `pc_setup/backend/model/best.pt` 교체할지 판단
+3. (테스트 이슈, 미해결) 사용자가 노트북 웹캠으로 입 사진 찍어서 테스트했더니 충치 탐지가 "놓침" 현상 있었음. `pc_setup/backend/main.py:411`의 `model.predict(image, conf=0.25, ...)` — confidence threshold 때문에 화질/조명 다른 웹캠 사진에서 낮은 확률로 탐지된 게 걸러졌을 가능성이 있음. **2026-08-20 검증 결과 cavity recall이 valid set 기준으로도 0.397밖에 안 나와서, conf 임계값 문제라기보다 모델 자체의 cavity 탐지력 문제일 가능성이 높아짐** — 데이터셋 감사로 원인(라벨 누락 vs 모델 학습 부족) 구분 예정
+4. (로드맵, 아직 미착수) 사용자가 로컬 PC 의존도를 더 줄이고 싶어함 — 지금은 "로컬에서 병합 스크립트 실행 → zip → Kaggle 업로드" 흐름인데, 이걸 Kaggle 노트북 안에서 직접 병합까지 하도록 바꾸면 로컬 PC는 "새 원본 데이터셋 다운받아서 Kaggle에 업로드"만 하면 되므로 어느 컴퓨터에서 작업하든 상관없어짐. 사용자가 원하면 이 방식으로 전환 가능
+5. 사용자가 집 컴퓨터(GPU 사양 미확인, iGPU 여부도 미확인)로 로컬 학습을 시도해볼 수도 있음 — 로컬 학습 스크립트가 아직 없어서(지금까지 전부 Kaggle 전용) 필요하면 새로 작성해야 함. iGPU 없으면 학교 PC와 같은 화면 멈춤 위험 있다고 미리 안내해둠
 
 ## 알아둘 것 (함정 주의)
 - 학습 파이프라인 스크립트는 전부 `pc_setup/training/`으로 옮겨져 있음 (원래 `pc_setup/` 바로 아래 있었는데, upstream에 나중에 push할 때 앱 코드랑 안 섞이게 분리함). 스크립트 안 경로 계산도 이 위치 기준으로 다 맞춰놨으니 새로 옮기거나 실행 위치 바꾸지 말 것
