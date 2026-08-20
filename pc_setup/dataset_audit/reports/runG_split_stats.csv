@@ -1,0 +1,4 @@
+split,images,unique_groups,cavity_gt,normal_gt,cavity_ratio,source_Caries_Dataset,source_Dental.v1-dentalai,source_ICDAS_II,source_ToothCariesAI.v1i.yolov8,source_caries_segmentation_merges_sec,source_data_fix.v1i.yolov8,source_dataset_yolo_original,source_dentalv7_or_unknown,source_Caries_Dataset_ratio,source_Dental.v1-dentalai_ratio,source_ICDAS_II_ratio,source_ToothCariesAI.v1i.yolov8_ratio,source_caries_segmentation_merges_sec_ratio,source_data_fix.v1i.yolov8_ratio,source_dataset_yolo_original_ratio,source_dentalv7_or_unknown_ratio
+train,36433,8152,87043,185281,0.3196,1622,5165,1574,6815,9229,2053,328,9647,0.0445,0.1418,0.0432,0.1871,0.2533,0.0564,0.009,0.2648
+valid,4553,1109,11183,22168,0.3353,190,630,218,894,1141,264,53,1163,0.0417,0.1384,0.0479,0.1964,0.2506,0.058,0.0116,0.2554
+test,4558,1082,11171,22604,0.3307,188,623,208,838,1112,307,37,1245,0.0412,0.1367,0.0456,0.1839,0.244,0.0674,0.0081,0.2731

@@ -1,30 +1,73 @@
-# 충치 탐지 모델 학습 — 진행 상황 (2026-08-20 갱신)
+# 충치 탐지 모델 학습 — 진행 상황 (2026-08-20 갱신, 같은 날 세션 대폭 진행)
 
 새 컴퓨터/새 Claude Code 세션에서 이 프로젝트를 이어갈 때 이 파일부터 읽으면 맥락 파악이 됩니다.
+아래 "지금 당장 이어서 할 일"이 최신이고, 그 아래 dataset_runC~F 관련 옛 기록 중 일부는 지금 시점에선 **참고용(더 이상 최선의 방법이 아님)**이니 헷갈리지 말 것 — 최신 결론은 항상 이 섹션 우선.
 
-## 지금 당장 이어서 할 일 (2026-08-20 세션, 진행 중 — 미완료)
-**작업 중 이 학교 컴퓨터가 멈춰서 재부팅할 위험이 있어 미리 기록해둠.**
+## 지금 당장 이어서 할 일 (2026-08-20 세션 후반 갱신)
+**Kaggle에서 `dataset_runG` + `kaggle_train_runG_A.py`로 학습 진행 중(새 노트북, 방금 시작함). 학교 컴퓨터라 재부팅 위험 있어 미리 기록.**
 
-1. **`dataset_runE` 학습이 조기종료로 실패한 걸 발견함** — 원인: `pc_setup/training/kaggle_train_runE.py`가 runD의 `best.pt`를 이어받아 학습하는데, 1 epoch째에 이미 mAP50-95=0.4686을 찍은 뒤 20 epoch 동안 그걸 못 넘어서 `patience=20` 때문에 **21 epoch만에 조기종료됨**. 저장된 "best"가 사실상 거의 학습 안 된, runD 가중치 그대로에 가까운 체크포인트였음 (runE 데이터가 나쁜 게 아니라 조기종료 설정 문제로 결론)
-   - **조치 완료**: `pc_setup/training/kaggle_train_runE.py:41`의 `patience=20` → **`patience=50`으로 수정함** (이 파일 그대로 Kaggle에 다시 붙여넣으면 됨)
-   - **Kaggle 쪽 `best.pt`는 이미 runD 버전 그대로 있음** (사용자가 runE 실행 이후로 갱신 안 함) — 그러니 Kaggle에 새로 업로드할 필요 없이, 고친 스크립트만 다시 실행하면 됨
-   - 로컬 `pc_setup/backend/model/best.pt`는 한때 이 미완성 runE 결과로 교체했었으나 **다시 runD로 되돌려놓음** (`best_runD_backup.pt`가 원본 백업, mAP50=0.698). 지금 `best.pt` = runD 맞음.
+### 지금까지 일어난 일 순서대로 요약
+1. cavity 성능이 실제로 나쁘다는 걸 검증함 (팀원 증언과 일치) → 원인 조사를 위해 데이터셋 감사(audit) 파이프라인을 만들어서 HIGH 우선순위 이미지 500장을 뽑아 ChatGPT 육안 검수용 contact sheet를 생성함 (`pc_setup/dataset_audit/`)
+2. 감사 결과 **ICDAS 소스의 라벨링 기준이 문제**라는 걸 발견 (아래 상세) → 재매핑 수정한 `dataset_runF` 생성
+3. GPT(사용자가 별도로 상담받은 AI)가 "**train-valid leakage(같은 원본 사진이 train/valid에 동시에 있는 문제) 먼저 확인하라**"고 지적 → 실제로 검사해보니 **valid의 84.5%가 train과 겹치는 심각한 leakage 발견**
+4. leakage를 없앤 **원본 그룹 단위 재분할 `dataset_runG`**를 만들어서 지금 이 데이터로 재학습 진행 중
 
-2. **cavity 클래스 성능이 크게 낮다는 것을 검증 완료함** (팀원 증언 확인됨) — `best_runD_backup.pt`(=현재 `best.pt`)를 `dataset_runD` valid set(6,059장)으로 재검증한 결과:
-   | 클래스 | Precision | Recall | mAP50 |
-   |---|---|---|---|
-   | cavity | 0.589 | **0.397** | 0.455 |
-   | normal | 0.733 | 0.954 | 0.940 |
+### 1) 데이터셋 감사(audit) — 완료
+- `pc_setup/dataset_audit/scripts/kaggle_audit_infer.py`: Kaggle에서 `best_runD_backup.pt`로 valid 6,059장 전체 추론 → GT와 IoU 매칭 → CAVITY_MISSED/CAVITY_AS_NORMAL 등 이슈 자동 분류. 결과는 `pc_setup/dataset_audit/kaggle_output/`에 csv로 저장됨 (이미지 아니고 텍스트라 가벼움)
+- `pc_setup/dataset_audit/scripts/build_review_package.py`: 그 csv로 review_score 계산 → HIGH 500장 뽑아서 GT/예측 박스 그린 contact sheet 25장(20장씩) + `chatgpt_review.csv` 생성 (`pc_setup/dataset_audit/chatgpt_review/`)
+- 이슈 건수(valid 6,059장 기준): CAVITY_MISSED 5,783 > UNCERTAIN_SAMPLE 5,357 > LOW_IOU 3,586 > **CAVITY_AS_NORMAL 1,748** > POSSIBLE_MISSING_NORMAL_LABEL 408 > NORMAL_AS_CAVITY 256. 이슈 있는 이미지 4,947장/6,059장(82%)
+- `pc_setup/dataset_audit/scripts/source_error_analysis.py`: 소스별로 **점유율 대비 정규화한 오류율** 계산 (GPT가 "HIGH 500장 중 비율만으로 판단하면 안 된다"고 지적해서 만듦). 결과는 `pc_setup/dataset_audit/reports/source_error_analysis.csv`
 
-   전체 평균 mAP50=0.698이 normal의 높은 성능(0.94)에 가려져서 cavity 문제(mAP50=0.455, recall 0.40)를 숨기고 있었음. 실제 서비스에서 충치를 잘 못 잡는다는 사용자 팀원 피드백과 정확히 일치.
-   - 추정 원인(미확정): valid 기준 cavity 인스턴스(15,397개)가 normal(26,046개)보다 1.7배 적어서 학습이 normal 쪽에 유리했을 가능성 + cavity 병변 자체가 형태 다양성이 커서 본질적으로 더 어려운 태스크일 가능성 + 서비스 코드의 `conf=0.25` 임계값이 실제 recall을 더 깎을 가능성. **어느 게 진짜 원인인지는 아래 3번 데이터셋 감사로 확인할 계획.**
+### 2) 소스별 정규화 오류율 핵심 결론
+| source | 전체 점유율 | HIGH비율 | cavity_missed_rate | cavity_as_normal_rate |
+|---|---|---|---|---|
+| **ICDAS_II** | 6.6% | **46.2%** | 11.5% | **60.0%** |
+| dataset_yolo_original | 1.5% | 26.9% | 11.5% | 42.8% |
+| Dental.v1-dentalai | 4.2% | 13.4% | 58.9% | 2.1% |
+| dentalv7_or_unknown | 9.5% | 7.3% | 50.5% | 0.1% |
+| caries_segmentation_merges_sec | 38.0% | 6.0% | 45.2% | 1.8% |
+| ToothCariesAI | 28.1% | 2.2% | 42.2% | 3.5% |
+| data_fix | 8.8% | 1.9% | 28.0% | 1.0% |
 
-3. **다음 작업: YOLO 데이터셋 감사(audit) 파이프라인 구축 — 사용자가 다른 AI에게 받은 스펙 검토 완료, 이대로 진행하기로 합의함.** 목적: 3만 장 이상 데이터를 사람이 직접 다 안 봐도 되게, 라벨 오류/모델 취약 샘플 후보를 자동 선별해서 ChatGPT가 육안 1차 검수할 수 있는 contact sheet + CSV로 정리.
-   - **핵심 설계 결정 (사용자와 합의됨)**:
-     - **1차는 train(28,898장) 전체가 아니라 valid(6,059장)만 우선 감사** — best.pt가 train으로 학습됐으니 train 추론은 신호가 흐림. valid 결과 보고 필요하면 train으로 확장.
-     - **추론은 Kaggle(T4 x2)에서, 결과 정리/시각화는 이 로컬 컴퓨터(CPU)에서** — 이 컴퓨터 GPU는 **GTX 1060 3GB**(PROGRESS.md에 예전에 GTX 1660으로 잘못 적혀있었음, 2026-08-20에 `torch.cuda.get_device_name()`으로 실측 정정함)라 VRAM이 작아서 몇만 장 추론에 부적합. Kaggle에서는 예측+GT 매칭 결과를 **가벼운 csv/json으로만** 추출해서 다운로드하고, contact sheet 그리기(이미지에 박스 그리는 것)는 로컬 CPU로 충분함.
-   - **아직 스크립트 작성 시작 전** — 다음 세션에서 이어가려면: (1) Kaggle용 추론+매칭 스크립트(`pc_setup/training/`에 만들 예정, 아직 없음) 먼저 작성 → (2) 로컬용 contact sheet/CSV 생성 스크립트(`pc_setup/dataset_audit/scripts/`) 작성. 사용자가 준 원본 스펙(오류 타입 A~I 분류, review_score, HIGH/MEDIUM/LOW, batch당 500장, contact sheet 16~25장 등)은 대부분 그대로 따르기로 함.
-   - 원칙(사용자가 강조함, 반드시 지킬 것): 원본 이미지/라벨/`best.pt` 절대 수정 금지, AI가 GT 자동 수정 금지, 결과는 전부 별도 폴더(`pc_setup/dataset_audit/`)에 저장.
+- **ICDAS_II가 확실한 문제 소스** — 점유율 대비 7배 이상 과대표집. 원인: ICDAS 7단계(0=Sound~6=광범위충치) 중 기존 재매핑 규칙이 "0만 normal, 1~6 전부 cavity"였는데, 1(Faint)/2(Distinct) 단계는 육안으로 거의 안 보이는 초기 변화라 "사진은 정상처럼 보이는데 GT는 cavity"인 노이즈가 대량 발생했음
+- **mergessec은 처음엔 의심했지만(HIGH 500장 중 32.2% 차지) 정규화하니 실제로는 평균 이하 — 문제 소스 아님으로 결론.** 전체의 38%나 차지하는 가장 큰 소스라서 절대 건수만 많아 보였던 것. OBB→AABB 변환 문제(박스가 커짐)는 여전히 존재할 수 있지만 지금은 **보류** (cavity_missed가 LOW_IOU/과도한 bbox와 강하게 연관된다는 증거 나오면 재검토)
+- **`dataset_yolo_original`(최초 418장 베이스라인)도 새로 발견된 문제 소스** — 점유율 1.5%인데 HIGH 26.9%, cavity_as_normal 42.8%. 원인: 다른 소스와 **라벨링 단위(granularity) 자체가 다름** — 병변만이 아니라 **치아 전체를 하나의 cavity 박스**로 잡는 방식이라, 병변만 타이트하게 박스치도록 학습된 모델과 박스 크기가 안 맞아서 LOW_IOU/CAVITY_AS_NORMAL 대량 발생. 라벨 오류가 아니라 스키마 불일치. **아직 수정 안 함, 향후 정제 후보로 유지 중**
+
+### 3) `dataset_runF` — ICDAS만 수정 (완료, 하지만 이후 runG로 대체되어 학습은 안 함)
+`pc_setup/training/build_dataset_runF.py`: dataset_runE 전체를 베이스로 ICDAS 재매핑만 수정 (0/1/2→normal, 3~6→cavity). cavity 박스 8,917개→5,480개(-38.5%).
+`pc_setup/training/kaggle_train_runF.py`도 만들어서(epoch=80, patience=30, GPU T4x2, dataset_runF가 runE보다 커서 100epoch면 9시간 넘을 위험 있어 80으로 낮춤) Kaggle에서 학습 시작했었으나, **leakage 발견 후 runG가 상위호환이라 판단되어 7~8epoch(약 49분)만에 취소함**. runF 자체는 폴더/zip으로 로컬에 남아있지만 이제 안 씀.
+
+### 4) train-valid leakage 발견 — 이번 세션에서 제일 중요한 발견
+GPT 요청으로 `pc_setup/dataset_audit/scripts/leakage_check.py`(파일명 `.rf.` 이전 원본ID + perceptual hash 두 방식) 실행 결과:
+- **valid 6,059장 중 5,121장(84.5%)이 train과 같은 원본 사진에서 나온 augmentation copy였음** — Roboflow가 증강 후 분할해서 train/valid에 같은 원본이 흩어져 들어간 전형적인 버그. 실제 이미지 쌍 하나를 열어서 육안으로도 확인함 (같은 사람 혀 무늬/치아 배열, 각도만 다름)
+- **leakage의 실제 성능 영향(직접 비교, runD valid 내부에서 leaked vs not_leaked로만 비교)**:
+  | | leaked(5,121장) | not_leaked(938장) |
+  |---|---|---|
+  | cavity_missed_rate | 38.1% | 34.8% |
+  | cavity_as_normal_rate | **9.5%** | **21.4%** |
+  → leakage는 "완전히 놓치는" recall 문제에는 영향이 제한적이고(오히려 leaked 쪽이 근소하게 더 나쁨), **"cavity를 normal로 확신 있게 잘못 부르는" 고신뢰 오분류에는 유의미한 영향을 줌**(leaked면 그 실수가 절반 이하로 줄어듦). "leakage가 성능을 부풀렸다"는 예상과는 다른, 더 구체적인 결론임.
+
+### 5) `dataset_runG` — leakage-free 그룹 단위 재분할 (완료, 지금 이걸로 학습 중)
+`pc_setup/dataset_audit/scripts/build_leakage_free_split.py`: dataset_runF(이미지 구성 동일, ICDAS 라벨 수정 반영)를 원본으로, Union-Find로 그룹을 묶어서(같은 source+파일명키, 완전동일 perceptual hash, 해밍거리<=4인 근접 hash 전부 병합) train/valid/test가 원본 그룹을 절대 안 넘도록 재분할.
+- 결과: train 36,433장(그룹 8,152개) / valid 4,553장(그룹 1,109개) / test 4,558장(그룹 1,082개), 목표 80/10/10에 근접. cavity 비율도 32.0/33.5/33.1%로 균등
+- `pc_setup/dataset_audit/scripts/verify_runG_leakage.py`로 재검증: **train-valid/train-test/valid-test 전부 0건 겹침 확인 (파일명+hash 둘 다)**
+- 소스별 비율도 train/valid/test 간 1~2%p 이내로 균등 유지됨 (`pc_setup/dataset_audit/reports/runG_split_stats.csv`)
+- **runG를 앞으로의 기준 split으로 삼기로 함.** 기존 leaky split(runD/E/F)은 참고용으로만 남김
+- `pc_setup/dataset_runG.zip`(1.71GB)로 압축 완료, Kaggle `hanium_dataset`에 New Version으로 업로드함
+- `pc_setup/dataset_audit/scripts/local_audit_runG.py`로 runG valid+test에 대해서도 로컬 감사 추론 완료 (`dataset_audit_runG_valid.csv`, `dataset_audit_runG_test.csv`) — **이 결과로 source별 재분석은 아직 안 함, 다음 세션에서 이어서 할 일**
+
+### 6) 지금 Kaggle에서 도는 것: runG 실험 A
+`pc_setup/training/kaggle_train_runG_A.py` — runD의 best.pt를 이어받아 dataset_runG로 fine-tuning (epoch=80, patience=30, seed=42, GPU T4x2). **사용자가 방금 새 Kaggle 노트북에서 Save & Run All로 시작함.**
+- 비교용 대조군 `pc_setup/training/kaggle_train_runG_B.py`(공식 pretrained yolov8n.pt에서 새로 학습, 조건 동일)도 만들어뒀지만 **아직 실행 안 함** — A 결과 먼저 보고 B 필요성 판단하기로 함 (쿼터 아끼려고)
+- 목적: runD가 이미 학습해버린 "잘못된 ICDAS 기준"의 영향이 fine-tuning(A)에도 남아있는지, 새로 학습(B)이 더 나은지 비교하기 위함
+
+### 다음 세션에서 이어서 할 일 (우선순위)
+1. **runG 실험 A 학습 결과 확인** — Kaggle Output에서 `cavity_train_runG_A_finetune/weights/best.pt` 받아서 로컬 `best.pt`와 비교 (cavity P/R/mAP50/mAP50-95, normal 동일 지표)
+2. A 결과 보고 실험 B(pretrained에서 새로 학습) 진행 여부 결정
+3. `dataset_audit_runG_valid.csv`/`dataset_audit_runG_test.csv`로 **source별 cavity_missed_rate를 runG 기준으로 재계산** (`source_error_analysis.py`를 runG용으로 변형해서 돌리면 됨) — GPT가 요청한 CAVITY_MISSED 대표 실패유형 분류(30~50장씩, source별)도 이어서 할 것
+4. `dataset_yolo_original`의 runG 기준 실제 영향도 계산 (아직 자동수정/삭제 금지, 정제 후보로만 유지)
+5. mergessec은 계속 보류, cavity_missed가 LOW_IOU/과도한 bbox와 강하게 연관된다는 증거 나오면 그때 OBB/segmentation 처리 방식 재검토
+6. **쿼터 주의**: runD(8.8h) + runE 조기종료(2.3h 낭비) + runF 취소분(49분) 이미 소모함. runG A(예상 8.9h)+B(예상 8.9h)까지 하면 주간 30시간 빠듯할 수 있음, Kaggle "Your Kaggle Quota" 패널로 실제 잔여량 확인 필요
 
 ## PWA 구현 (2026-08-18, 로컬 커밋만 완료 — origin에 아직 push 안 함)
 - **커밋**: `ae301fe` "PWA 지원 추가: 매니페스트, 서비스 워커, 설치 가능성" (로컬 main 브랜치, origin/main엔 미반영)
@@ -98,12 +141,12 @@
 - **경로를 하드코딩하지 않고 `/kaggle/input` 전체에서 `rglob`으로 `data.yaml`/`best.pt` 자동 탐색** (Kaggle이 데이터셋 마운트할 때 폴더를 이중으로 감싸는 경우가 있어서 하드코딩하면 자꾸 에러 났음, 자동탐색으로 해결)
 - **매 라운드마다 직전 라운드의 `best.pt`를 이어받아 `model.train()` 다시 호출하는 방식** — 진짜 resume(중단 지점부터 재개)이 아니라 그 가중치로 처음부터 다시 학습하는 것이므로 매번 실제 GPU 시간을 다 씀 (주의)
 
-## 다음에 할 일 (우선순위 순)
-1. **데이터셋 감사(audit) 파이프라인 만들기** — 맨 위 "지금 당장 이어서 할 일" 3번 참고. 아직 스크립트 작성 시작 전.
-2. **`dataset_runE` 재학습** — `kaggle_train_runE.py`는 이미 `patience=50`으로 고쳐놨음. Kaggle 쪽 Input(`best.pt`=runD, `dataset_runE`)은 그대로 재사용 가능, 새로 업로드할 필요 없음. 학습 끝나면 runD(mAP50=0.698) 대비 비교하고 `pc_setup/backend/model/best.pt` 교체할지 판단
-3. (테스트 이슈, 미해결) 사용자가 노트북 웹캠으로 입 사진 찍어서 테스트했더니 충치 탐지가 "놓침" 현상 있었음. `pc_setup/backend/main.py:411`의 `model.predict(image, conf=0.25, ...)` — confidence threshold 때문에 화질/조명 다른 웹캠 사진에서 낮은 확률로 탐지된 게 걸러졌을 가능성이 있음. **2026-08-20 검증 결과 cavity recall이 valid set 기준으로도 0.397밖에 안 나와서, conf 임계값 문제라기보다 모델 자체의 cavity 탐지력 문제일 가능성이 높아짐** — 데이터셋 감사로 원인(라벨 누락 vs 모델 학습 부족) 구분 예정
-4. (로드맵, 아직 미착수) 사용자가 로컬 PC 의존도를 더 줄이고 싶어함 — 지금은 "로컬에서 병합 스크립트 실행 → zip → Kaggle 업로드" 흐름인데, 이걸 Kaggle 노트북 안에서 직접 병합까지 하도록 바꾸면 로컬 PC는 "새 원본 데이터셋 다운받아서 Kaggle에 업로드"만 하면 되므로 어느 컴퓨터에서 작업하든 상관없어짐. 사용자가 원하면 이 방식으로 전환 가능
-5. 사용자가 집 컴퓨터(GPU 사양 미확인, iGPU 여부도 미확인)로 로컬 학습을 시도해볼 수도 있음 — 로컬 학습 스크립트가 아직 없어서(지금까지 전부 Kaggle 전용) 필요하면 새로 작성해야 함. iGPU 없으면 학교 PC와 같은 화면 멈춤 위험 있다고 미리 안내해둠
+## 옛 "다음에 할 일" (2026-08-20 세션 초반 기준 — 대부분 완료/대체됨, 최신은 맨 위 섹션 참고)
+1. ~~데이터셋 감사 파이프라인 만들기~~ → 완료, 맨 위 섹션 참고
+2. ~~`dataset_runE` 재학습~~ → runE는 조기종료 문제 확인 후 ICDAS 수정한 runF로, 다시 leakage 발견 후 runG로 대체됨. runE/runF 둘 다 실제 학습은 안 함(또는 중도 취소)
+3. (테스트 이슈, 아직 미해결) 웹캠 촬영 시 cavity "놓침" — cavity recall 자체가 낮다는 게 확인됐으니 conf 임계값 문제라기보다 모델 성능 문제. runG 재학습 결과 나오면 재점검
+4. (로드맵, 아직 미착수) Kaggle 노트북 안에서 직접 데이터 병합까지 하도록 전환하는 방안 — 사용자가 원하면 진행
+5. (로드맵, 아직 미착수) 로컬 학습 스크립트 작성 — 필요시 진행
 
 ## 알아둘 것 (함정 주의)
 - 학습 파이프라인 스크립트는 전부 `pc_setup/training/`으로 옮겨져 있음 (원래 `pc_setup/` 바로 아래 있었는데, upstream에 나중에 push할 때 앱 코드랑 안 섞이게 분리함). 스크립트 안 경로 계산도 이 위치 기준으로 다 맞춰놨으니 새로 옮기거나 실행 위치 바꾸지 말 것

@@ -34,8 +34,15 @@ yarn-error.log*
 /pc_setup/dataset_runD.zip
 /pc_setup/dataset_runE/
 /pc_setup/dataset_runE.zip
+/pc_setup/dataset_runF/
+/pc_setup/dataset_runF.zip
+/pc_setup/dataset_runG/
+/pc_setup/dataset_runG.zip
 /pc_setup/dataset_dentalv7_converted/
 /pc_setup/**/__pycache__/
 /pc_setup/*.pt
+/pc_setup/backend/model/*.pt
 /pc_setup/backend/*.db
+/pc_setup/dataset_audit/chatgpt_review/
+/pc_setup/dataset_audit/examples/
 /runs/

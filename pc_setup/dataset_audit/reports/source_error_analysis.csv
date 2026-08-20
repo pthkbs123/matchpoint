@@ -1,0 +1,9 @@
+source,total_images,total_ratio,cavity_gt,normal_gt,cavity_missed,cavity_missed_rate,cavity_as_normal,cavity_as_normal_rate,normal_as_cavity,normal_as_cavity_rate,high_priority_count,high_priority_rate
+caries_segmentation_merges_sec,2300,0.3796,4818,20243,2176,0.4516,87,0.0181,71,0.0035,138,0.06
+ToothCariesAI.v1i.yolov8,1705,0.2814,3918,0,1653,0.4219,139,0.0355,0,0,37,0.0217
+dentalv7_or_unknown,574,0.0947,1849,0,934,0.5051,2,0.0011,0,0,42,0.0732
+data_fix.v1i.yolov8,535,0.0883,1549,0,433,0.2795,15,0.0097,0,0,10,0.0187
+ICDAS_II,398,0.0657,2156,2452,247,0.1146,1294,0.6002,55,0.0224,184,0.4623
+Dental.v1-dentalai,254,0.0419,487,2653,287,0.5893,10,0.0205,113,0.0426,34,0.1339
+Caries_Dataset,200,0.033,160,40,0,0.0,4,0.025,0,0.0,0,0.0
+dataset_yolo_original,93,0.0153,460,667,53,0.1152,197,0.4283,17,0.0255,25,0.2688
