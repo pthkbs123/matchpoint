@@ -111,7 +111,7 @@ function MainPage({ onNavigate, user, token, selectedChildId, onSelectChild }) {
           <div>
             <p className="eyebrow">SMILEGUARD</p>
             <h1>안녕하세요, {userName} 님</h1>
-            <p className="subtext">아이의 구강 변화를 꾸준히 기록해 보세요.</p>
+            <p className="subtext">구강 변화를 꾸준히 기록해 보세요.</p>
           </div>
           <div className="home-header-actions">
             <button

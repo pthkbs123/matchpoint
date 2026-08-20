@@ -29,4 +29,5 @@ yarn-error.log*
 /pc_setup/**/__pycache__/
 /pc_setup/*.pt
 /pc_setup/backend/*.db
+/pc_setup/backend/uploads/
 /runs/

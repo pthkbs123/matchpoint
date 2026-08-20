@@ -46,7 +46,7 @@ function MyPage({ onNavigate, onBack, onLogout, user, token, provider }) {
           </div>
           <h2>{userName} 님</h2>
           <p>{userEmail}</p>
-          <span className="profile-status">SmileGuard와 함께한 지 {summary?.member_since_days ?? 0}일째</span>
+          <span className="profile-status">SmileGuard와 함께한 지 {summary?.member_since_days ?? 1}일째</span>
         </div>
 
         <div className="mypage-summary">

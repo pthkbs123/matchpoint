@@ -123,7 +123,7 @@ function ReportPage({ onNavigate, onBack, token, selectedChildId }) {
         )}
 
         <div className="period">
-          <div><h2>변화 추이</h2><p>{changeLabel}</p></div>
+          <div><h2>변화 그래프</h2><p>{changeLabel}</p></div>
           <div className="range-tabs" aria-label="리포트 기간">
             <button className={range === 'weekly' ? 'active' : ''} onClick={() => setRange('weekly')}>최근 7일</button>
             <button className={range === 'monthly' ? 'active' : ''} onClick={() => setRange('monthly')}>최근 30일</button>
@@ -140,7 +140,7 @@ function ReportPage({ onNavigate, onBack, token, selectedChildId }) {
           ) : (
             <div className="report-onboarding">
               <span>▥</span>
-              <h3>추이 분석까지 {Math.max(3 - trendDayCount, 0)}일 남았어요</h3>
+              <h3>그래프 분석까지 {Math.max(3 - trendDayCount, 0)}일 남았어요</h3>
               <p>조명과 촬영 위치를 비슷하게 유지해 서로 다른 날짜에 3일 이상 기록하면 변화 그래프를 확인할 수 있어요.</p>
               <button className="login-button" onClick={() => onNavigate('camera')}>촬영하기</button>
             </div>

@@ -13,3 +13,17 @@ export async function apiFetch(path, { token, headers, ...options } = {}) {
 
   return res.json();
 }
+
+export async function apiFetchBlob(path, { token, headers, ...options } = {}) {
+  const mergedHeaders = { ...headers };
+  if (token) mergedHeaders.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}${path}`, { ...options, headers: mergedHeaders });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || data.message || '이미지를 불러오지 못했습니다.');
+  }
+
+  return res.blob();
+}

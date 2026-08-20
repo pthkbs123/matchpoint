@@ -15,6 +15,7 @@ import httpx
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from PIL import Image, ImageOps
@@ -41,6 +42,7 @@ from db import get_conn, init_db, now_iso
 from mailer import send_reset_password_email
 
 MODEL_PATH = BACKEND_DIR / "model" / "best.pt"
+CAPTURE_DIR = BACKEND_DIR / "uploads"
 _backend_google_client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
 _frontend_google_client_id = os.getenv("REACT_APP_GOOGLE_CLIENT_ID", "").strip()
 GOOGLE_CLIENT_ID = (
@@ -524,13 +526,26 @@ async def analyze(
                 ).fetchone()
                 if child is None:
                     raise HTTPException(status_code=400, detail="선택한 자녀 정보를 확인할 수 없습니다.")
-            conn.execute(
+            cursor = conn.execute(
                 """
                 INSERT INTO analysis_records
                     (user_id, child_id, created_at, cavity_count, normal_count, total_detections, score, detections_json)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (user["id"], child_id, now_iso(), cavity_count, normal_count, len(detections), score, json.dumps(detections)),
+            )
+            CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
+            image_name = f"{user['id']}_{cursor.lastrowid}.jpg"
+            image_path = CAPTURE_DIR / image_name
+            try:
+                stored_image = image.copy()
+                stored_image.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
+                stored_image.save(image_path, format="JPEG", quality=88, optimize=True)
+            except OSError as exc:
+                raise HTTPException(status_code=500, detail="촬영 이미지를 저장하지 못했습니다.") from exc
+            conn.execute(
+                "UPDATE analysis_records SET image_path = ? WHERE id = ?",
+                (image_name, cursor.lastrowid),
             )
 
     return {
@@ -549,9 +564,10 @@ async def analyze(
 # 이력 / 리포트
 # ---------------------------------------------------------------------------
 def _days_since(iso_str: str) -> int:
-    created = datetime.fromisoformat(iso_str)
-    delta = datetime.now(timezone.utc) - created
-    return max(0, delta.days)
+    korea_timezone = timezone(timedelta(hours=9))
+    created_date = datetime.fromisoformat(iso_str).astimezone(korea_timezone).date()
+    today = datetime.now(korea_timezone).date()
+    return max(1, (today - created_date).days + 1)
 
 
 def _daily_score_series(rows) -> list[dict]:
@@ -600,7 +616,7 @@ def history(child_id: int | None = Query(None), user=Depends(require_user)):
         if child_id is not None:
             rows = conn.execute(
                 """
-                SELECT id, child_id, created_at, cavity_count, normal_count, total_detections, score
+                SELECT id, child_id, created_at, cavity_count, normal_count, total_detections, score, image_path
                 FROM analysis_records WHERE user_id = ? AND child_id = ? ORDER BY created_at DESC
                 """,
                 (user["id"], child_id),
@@ -608,12 +624,34 @@ def history(child_id: int | None = Query(None), user=Depends(require_user)):
         else:
             rows = conn.execute(
                 """
-                SELECT id, child_id, created_at, cavity_count, normal_count, total_detections, score
+                SELECT id, child_id, created_at, cavity_count, normal_count, total_detections, score, image_path
                 FROM analysis_records WHERE user_id = ? ORDER BY created_at DESC
                 """,
                 (user["id"],),
             ).fetchall()
-    return {"records": [dict(row) for row in rows]}
+    records = []
+    for row in rows:
+        record = dict(row)
+        record["has_image"] = bool(record.pop("image_path", None))
+        records.append(record)
+    return {"records": records}
+
+
+@app.get("/api/history/{record_id}/image")
+def history_image(record_id: int, user=Depends(require_user)):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT image_path FROM analysis_records WHERE id = ? AND user_id = ?",
+            (record_id, user["id"]),
+        ).fetchone()
+
+    if row is None or not row["image_path"]:
+        raise HTTPException(status_code=404, detail="저장된 촬영 이미지가 없습니다.")
+
+    image_path = (CAPTURE_DIR / Path(row["image_path"]).name).resolve()
+    if image_path.parent != CAPTURE_DIR.resolve() or not image_path.is_file():
+        raise HTTPException(status_code=404, detail="촬영 이미지 파일을 찾을 수 없습니다.")
+    return FileResponse(image_path, media_type="image/jpeg")
 
 
 @app.get("/api/report/summary")

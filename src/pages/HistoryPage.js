@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { apiFetch } from '../api';
+import { apiFetch, apiFetchBlob } from '../api';
 
 function scoreTone(score) {
   return score >= 80 ? 'good' : 'watch';
@@ -11,11 +11,24 @@ function formatDate(iso) {
   return `${date.getMonth() + 1}월 ${date.getDate()}일`;
 }
 
+function formatDateTime(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return new Intl.DateTimeFormat('ko-KR', {
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
 function HistoryPage({ onNavigate, onBack, token, selectedChildId, onSelectChild }) {
   const [children, setChildren] = useState([]);
   const [activeChildId, setActiveChildId] = useState(selectedChildId);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [records, setRecords] = useState([]);
+  const [imageUrls, setImageUrls] = useState({});
+  const [selectedRecord, setSelectedRecord] = useState(null);
   const [newChildName, setNewChildName] = useState('');
   const [isLoadingChildren, setIsLoadingChildren] = useState(true);
   const [isLoadingRecords, setIsLoadingRecords] = useState(false);
@@ -55,6 +68,7 @@ function HistoryPage({ onNavigate, onBack, token, selectedChildId, onSelectChild
       return undefined;
     }
     let cancelled = false;
+    setSelectedRecord(null);
     setIsLoadingRecords(true);
     apiFetch(`/api/history?child_id=${activeChildId}`, { token })
       .then((data) => {
@@ -70,6 +84,40 @@ function HistoryPage({ onNavigate, onBack, token, selectedChildId, onSelectChild
       cancelled = true;
     };
   }, [token, activeChildId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const objectUrls = [];
+
+    const loadImages = async () => {
+      const entries = await Promise.all(
+        records
+          .filter((record) => record.has_image)
+          .map(async (record) => {
+            try {
+              const blob = await apiFetchBlob(`/api/history/${record.id}/image`, { token });
+              const url = URL.createObjectURL(blob);
+              objectUrls.push(url);
+              return [record.id, url];
+            } catch {
+              return null;
+            }
+          })
+      );
+
+      if (!cancelled) {
+        setImageUrls(Object.fromEntries(entries.filter(Boolean)));
+      }
+    };
+
+    setImageUrls({});
+    if (token && records.length > 0) loadImages();
+
+    return () => {
+      cancelled = true;
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [records, token]);
 
   const handleAddChild = async (event) => {
     event.preventDefault();
@@ -181,12 +229,29 @@ function HistoryPage({ onNavigate, onBack, token, selectedChildId, onSelectChild
             {!isLoadingRecords && records.length > 0 && (
               <ul className="history-list">
                 {records.map((record) => (
-                  <li className="history-item" key={record.id}>
-                    <div className="history-meta">
-                      <strong>{formatDate(record.created_at)}</strong>
-                      <span>충치 의심 {record.cavity_count}곳</span>
-                    </div>
-                    <span className={`history-badge ${scoreTone(record.score)}`}>{record.score}점</span>
+                  <li key={record.id}>
+                    <button
+                      type="button"
+                      className="history-item"
+                      onClick={() => setSelectedRecord(record)}
+                      aria-label={`${formatDate(record.created_at)} 촬영 기록 보기`}
+                    >
+                      <span className={`history-thumbnail ${imageUrls[record.id] ? 'has-image' : ''}`}>
+                        {imageUrls[record.id] ? (
+                          <img src={imageUrls[record.id]} alt="" />
+                        ) : (
+                          <span aria-hidden="true">{record.has_image ? '…' : '📷'}</span>
+                        )}
+                      </span>
+                      <span className="history-meta">
+                        <strong>{formatDate(record.created_at)}</strong>
+                        <span>충치 의심 {record.cavity_count}곳</span>
+                      </span>
+                      <span className="history-item-end">
+                        <span className={`history-badge ${scoreTone(record.score)}`}>{record.score}점</span>
+                        <span className="history-chevron" aria-hidden="true">›</span>
+                      </span>
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -198,6 +263,43 @@ function HistoryPage({ onNavigate, onBack, token, selectedChildId, onSelectChild
           <p className="social-error" role="alert" style={{ textAlign: 'center', marginTop: 20 }}>{error}</p>
         )}
       </div>
+
+      {selectedRecord && (
+        <div className="history-modal-backdrop" onClick={() => setSelectedRecord(null)}>
+          <section
+            className="history-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="history-detail-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="history-modal-head">
+              <div>
+                <small>촬영 기록</small>
+                <h2 id="history-detail-title">{formatDateTime(selectedRecord.created_at)}</h2>
+              </div>
+              <button type="button" onClick={() => setSelectedRecord(null)} aria-label="닫기">×</button>
+            </div>
+
+            <div className="history-detail-image">
+              {imageUrls[selectedRecord.id] ? (
+                <img src={imageUrls[selectedRecord.id]} alt={`${formatDate(selectedRecord.created_at)} 촬영 이미지`} />
+              ) : (
+                <div className="history-image-empty">
+                  <span aria-hidden="true">📷</span>
+                  <p>{selectedRecord.has_image ? '이미지를 불러오는 중이에요.' : '이전 기록에는 저장된 이미지가 없어요.'}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="history-detail-metrics">
+              <div><span>구강 점수</span><strong>{selectedRecord.score}점</strong></div>
+              <div><span>충치 의심</span><strong>{selectedRecord.cavity_count}곳</strong></div>
+              <div><span>정상 치아</span><strong>{selectedRecord.normal_count}곳</strong></div>
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   );
 }
