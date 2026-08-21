@@ -83,8 +83,11 @@ function MainPage({ onNavigate, user, token, selectedChildId, onSelectChild }) {
   const currentScore = summary?.current_score;
   const notifications = summary?.notifications || [];
   const notificationsEnabled = localStorage.getItem('notif_service') !== 'false';
-  const hasUnreadNotification = notificationsEnabled
-    && hasUnreadNotifications(notifications, user, selectedChildId);
+  const captureReminderEnabled = localStorage.getItem('notif_capture') !== 'false';
+  const enabledNotifications = notifications.filter((notification) => (
+    notification.type === 'capture_due' ? captureReminderEnabled : notificationsEnabled
+  ));
+  const hasUnreadNotification = hasUnreadNotifications(enabledNotifications, user, selectedChildId);
 
   const chartData = useMemo(() => ({
     labels: trend?.labels || [],
@@ -142,13 +145,17 @@ function MainPage({ onNavigate, user, token, selectedChildId, onSelectChild }) {
         <div className="start-card">
           <button
             className="camera-start"
-            onClick={() => selectedChild ? onNavigate('camera') : onNavigate('child-profile')}
+            onClick={() => selectedChild ? onNavigate('pre-capture') : onNavigate('child-profile')}
             aria-label="촬영 시작"
           >
             ◎
           </button>
           <h2>{selectedChild ? `${selectedChild.name} 구강 촬영` : '자녀 프로필을 등록해 주세요'}</h2>
-          <p>{selectedChild ? '위생 커버를 교체한 뒤 촬영을 시작해 주세요.' : '촬영 기록을 자녀별로 안전하게 관리할 수 있어요.'}</p>
+          <p>{selectedChild
+            ? summary?.scan_due
+              ? `${summary?.notification_schedule_label || '매주 일요일'} 촬영 시기가 되었어요.`
+              : `${summary?.notification_schedule_label || '매주 일요일'} 일정으로 관리하고 있어요.`
+            : '촬영 기록을 자녀별로 안전하게 관리할 수 있어요.'}</p>
         </div>
 
         <div className="report-card">
@@ -161,8 +168,8 @@ function MainPage({ onNavigate, user, token, selectedChildId, onSelectChild }) {
               <Line data={chartData} options={chartOptions} />
             ) : (
               <div className="trend-empty">
-                <strong>{Math.min(trendDayCount, 3)} / 3일</strong>
-                <span>서로 다른 날짜에 3일 이상 촬영하면 변화 그래프가 열려요.</span>
+                <strong>{Math.min(trendDayCount, 3)} / 3회</strong>
+                <span>권장 주기에 맞춰 3회 이상 촬영하면 변화 그래프가 열려요.</span>
                 <div><i style={{ width: `${Math.min(trendDayCount / 3, 1) * 100}%` }} /></div>
               </div>
             )}
