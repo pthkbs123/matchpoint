@@ -1,9 +1,41 @@
-# 충치 탐지 모델 학습 — 진행 상황 (2026-08-20 갱신, 같은 날 세션 대폭 진행)
+# 충치 탐지 모델 학습 — 진행 상황 (2026-08-21 갱신)
 
 새 컴퓨터/새 Claude Code 세션에서 이 프로젝트를 이어갈 때 이 파일부터 읽으면 맥락 파악이 됩니다.
-아래 "지금 당장 이어서 할 일"이 최신이고, 그 아래 dataset_runC~F 관련 옛 기록 중 일부는 지금 시점에선 **참고용(더 이상 최선의 방법이 아님)**이니 헷갈리지 말 것 — 최신 결론은 항상 이 섹션 우선.
+아래 "지금 당장 이어서 할 일"이 최신이고, 그 아래 옛 기록 중 일부는 지금 시점에선 **참고용(더 이상 최선의 방법이 아님)**이니 헷갈리지 말 것 — 최신 결론은 항상 이 섹션 우선.
 
-## 지금 당장 이어서 할 일 (2026-08-20 세션 후반 갱신)
+## 2026-08-21 세션 (집 컴퓨터로 이어감) — 진행사항
+
+### 1) 새 컴퓨터 세팅
+- 학교 컴퓨터에서 집 컴퓨터로 작업 이전. `origin`(`pthkbs123/matchpoint`) 클론 완료, `upstream`(`yuly0531/matchpoint`) 리모트도 추가함
+- upstream에 팀원이 올린 새 커밋 2개(`83ea28e` 촬영 히스토리 이미지저장, `6a387a7` 시계열 기능)를 병합 → `.gitignore` 한 줄만 충돌(각자 다른 줄 추가라 안전하게 합침) → **origin에 push 완료** (`475273a`)
+- 이 컴퓨터엔 `pc_setup/backend` 실행용 `venv`를 새로 만들고 `requirements.txt` 전체 설치함 (torch/ultralytics/opencv 포함) — 다음부턴 재설치 없이 바로 서버 실행 가능
+
+### 2) runG 실험 A 결과 확인 — 21 epoch에서 중단, 개선 없음
+- Kaggle `kaggle_train_runG_A.py`(runD best.pt → runG fine-tuning) 결과물 `best.pt`/`results.csv` 확인함
+- **21 epoch에서 중단됨** (patience=30 조건 채우기 전 — 정상 조기종료 아니고 세션이 끊긴 것으로 추정)
+- 로그상 **epoch 1이 best** (overall P=0.673 / R=0.670 / mAP50=0.690 / mAP50-95=0.469), 이후 20 epoch 동안 못 넘음
+- **주의**: 사용자가 ChatGPT에 물어본 분석 결과(P=0.732/R=0.706/mAP50=0.744/mAP50-95=0.519 등, "30 epoch 갱신 못해 조기종료" 등)는 실제 `results.csv`와 전혀 일치하지 않음 — 실제 파일을 열람하지 않고 만들어낸(추정/환각) 수치로 판단됨. 패턴 설명(epoch1이 best)만 우연히 맞았고 구체적 숫자는 신뢰 불가
+- 결론: 이 A실험 결과는 기존 배포 모델(`runD best.pt`, mAP50=0.698)보다 나은 게 없어 **교체 안 함**. 실험 기록으로만 유지
+
+### 3) runG 실험 B 시작 — 진행 중
+- `pc_setup/training/kaggle_train_runG_B.py`(공식 pretrained yolov8n.pt → runG 새로 학습, A와 조건 동일: epoch=80/imgsz=640/batch=64/patience=30/seed=42) 사용자가 Kaggle에서 **Save & Run All로 실행 시작함, 아직 결과 안 나옴**
+- 완료되면 `best.pt` + `results.csv` 받아서 runD/A/B 셋을 **cavity Recall 중심으로** 비교 예정 (전체 mAP 상승만으로 판단 금지 — 이 프로젝트 핵심 문제가 "충치 놓침"이라서)
+- 클래스별(cavity/normal) 세부 검증은 아직 못 함 — 이 컴퓨터에 `dataset_runG` valid/test 실물 데이터가 없음, Kaggle에서 검증 셀 추가하거나 로컬에 데이터 받아와야 함 (다음 세션 결정 필요)
+
+### 4) OpenCV 전처리 + 색상분석(황변지수/잇몸염증지수) — 구현 완료
+- 목표: `analysis_records.yellowing_index`/`gum_inflammation_index` 컬럼과 리포트 그래프(`/api/report/summary`)는 이미 준비돼 있었는데 실제 계산 로직만 빠져있던 부분을 채움
+- **모델 재학습 없이** 기존 YOLO cavity/normal 박스 좌표만으로 치아·잇몸 영역을 휴리스틱 추정하는 방식으로 결정 (시간 제약 때문에 새 잇몸 탐지 모델은 배제)
+- 신규 `pc_setup/backend/color_analysis.py`:
+  - `preprocess_bgr`: Gray-world 화이트밸런스 보정 + LAB L채널 CLAHE
+  - `compute_yellowing_index`: `normal` 박스 내부만 사용(cavity 박스는 병변 어두움이라 제외), LAB b*채널 평균 → 0~100 지수(높을수록 건강, 기존 `score` 관례와 통일)
+  - `compute_gum_inflammation_index`: 박스 바로 아래 30% 띠를 잇몸 후보로 잡고 HSV로 구강 점막색만 필터링(**Hue가 0 근처와 179 근처 양쪽에 걸치는 wraparound 버그를 단위 테스트로 발견해 수정함**) → LAB a*채널 평균 → 0~100 지수
+  - `BASELINE_B/MAX_B/BASELINE_A/MAX_A` 등 보정 상수는 **임상 검증 안 된 휴리스틱 초깃값** — 실사용 데이터로 재보정 필요, 코드에도 주석으로 명시함
+- `pc_setup/backend/main.py`의 `/analyze`에 연결 (실패해도 try/except로 감싸서 충치 탐지 응답 자체는 안 죽게 처리), `pc_setup/requirements.txt`에 `opencv-python-headless` 추가
+- **엔드투엔드 테스트 완료**: 위키미디어 커먼즈 CC BY-SA 4.0 치아 사진(`Human_teeth.jpg`)으로 로컬 서버 띄워서 `/analyze` 호출 → YOLO가 치아 9개 정상 탐지, 두 지수 모두 null 아니고 실제 값(100.0/100.0) 계산됨 → 로그인 후 재호출해서 DB(`analysis_records`)/`/api/history` 조회까지 값 정상 저장·조회 확인
+- **로컬 커밋 완료** (`246ba1b`), **origin push는 보류 중** (사용자가 나중에 하기로 함)
+- **다음에 할 일**: 사용자가 실제 사진(본인 촬영 또는 팀 사진) 여러 장으로 PWA를 통해 직접 검증할 예정 — 그 결과 보고 보정 상수 튜닝 필요할 수 있음
+
+## 지금 당장 이어서 할 일 (2026-08-20 세션 후반 갱신, 아래는 그 시점 기준 — runG 진행상황은 위 2026-08-21 섹션이 최신)
 **Kaggle에서 `dataset_runG` + `kaggle_train_runG_A.py`로 학습 진행 중(새 노트북, 방금 시작함). 학교 컴퓨터라 재부팅 위험 있어 미리 기록.**
 
 ### 지금까지 일어난 일 순서대로 요약
