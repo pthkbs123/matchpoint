@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../api';
+import { captureWeekdays, getCaptureSchedule } from '../captureSchedule';
+import { isCharacterFeedbackEnabled, setCharacterFeedbackEnabled } from '../feedbackSettings';
 
 function ChildProfilePage({ onNavigate, onBack, token, selectedChildId, onSelectChild }) {
   const [children, setChildren] = useState([]);
@@ -8,7 +10,11 @@ function ChildProfilePage({ onNavigate, onBack, token, selectedChildId, onSelect
   const [editingId, setEditingId] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [scheduleEditingId, setScheduleEditingId] = useState(null);
+  const [isScheduleSaving, setIsScheduleSaving] = useState(false);
+  const [characterFeedbackEnabled, setCharacterFeedbackState] = useState(isCharacterFeedbackEnabled);
   const [error, setError] = useState('');
+  const [profileNotice, setProfileNotice] = useState('');
 
   const loadChildren = () => {
     if (!token) return Promise.resolve();
@@ -34,6 +40,7 @@ function ChildProfilePage({ onNavigate, onBack, token, selectedChildId, onSelect
   };
 
   const startEdit = (child) => {
+    setScheduleEditingId(null);
     setEditingId(child.id);
     setName(child.name);
     setBirthDate(child.birthDate || '');
@@ -42,6 +49,10 @@ function ChildProfilePage({ onNavigate, onBack, token, selectedChildId, onSelect
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (!name.trim()) return;
+    if (!birthDate) {
+      setError('맞춤 촬영 일정을 설정하려면 생년월일을 입력해 주세요.');
+      return;
+    }
     setIsSaving(true);
     setError('');
     try {
@@ -53,6 +64,8 @@ function ChildProfilePage({ onNavigate, onBack, token, selectedChildId, onSelect
         body: JSON.stringify({ name: name.trim(), birthDate: birthDate || null }),
       });
       onSelectChild(child.id);
+      const schedule = getCaptureSchedule(child.birthDate, child.reminderWeekday);
+      setProfileNotice(`${child.name} 님의 앱 내 촬영 일정이 '${schedule.scheduleLabel}'로 자동 설정됐어요.`);
       resetForm();
       await loadChildren();
     } catch (err) {
@@ -60,6 +73,37 @@ function ChildProfilePage({ onNavigate, onBack, token, selectedChildId, onSelect
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleWeekdayChange = async (child, weekday) => {
+    setIsScheduleSaving(true);
+    setError('');
+    try {
+      const updatedChild = await apiFetch(`/api/children/${child.id}/schedule`, {
+        token,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ weekday }),
+      });
+      setChildren((current) => current.map((item) => (
+        item.id === updatedChild.id ? updatedChild : item
+      )));
+      const schedule = getCaptureSchedule(updatedChild.birthDate, updatedChild.reminderWeekday);
+      setProfileNotice(`${updatedChild.name} 님의 앱 내 촬영 일정이 '${schedule.scheduleLabel}'로 변경됐어요.`);
+      setScheduleEditingId(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsScheduleSaving(false);
+    }
+  };
+
+  const handleFeedbackToggle = (enabled) => {
+    setCharacterFeedbackEnabled(enabled);
+    setCharacterFeedbackState(enabled);
+    setProfileNotice(
+      `모든 자녀의 캐릭터 피드백을 ${enabled ? '사용하도록' : '표시하지 않도록'} 설정했어요.`
+    );
   };
 
   return (
@@ -79,23 +123,78 @@ function ChildProfilePage({ onNavigate, onBack, token, selectedChildId, onSelect
           </div>
         </div>
 
+        <section className="settings-list child-feedback-preference" aria-label="공통 결과 화면 설정">
+          <label className="setting-row">
+            <span>
+              <strong>캐릭터 피드백</strong>
+              <small>모든 자녀의 결과 화면에 치아·몬스터 캐릭터를 표시해요.</small>
+            </span>
+            <input
+              type="checkbox"
+              checked={characterFeedbackEnabled}
+              onChange={(event) => handleFeedbackToggle(event.target.checked)}
+            />
+            <i aria-hidden="true" />
+          </label>
+        </section>
+
         {isLoading ? (
           <p className="subtext page-state">자녀 정보를 불러오는 중이에요...</p>
         ) : (
           <div className="child-profile-list">
-            {children.map((child) => (
-              <article className={`child-profile-item ${child.id === selectedChildId ? 'selected' : ''}`} key={child.id}>
-                <button type="button" className="child-profile-select" onClick={() => onSelectChild(child.id)}>
-                  <span className="child-avatar">{child.name.slice(0, 1)}</span>
-                  <span>
-                    <strong>{child.name}</strong>
-                    <small>{child.birthDate || '생년월일 미등록'}</small>
-                  </span>
-                  <b>{child.id === selectedChildId ? '관리 중' : '선택'}</b>
-                </button>
-                <button type="button" className="child-edit-button" onClick={() => startEdit(child)}>수정</button>
-              </article>
-            ))}
+            {children.map((child) => {
+              const schedule = getCaptureSchedule(child.birthDate, child.reminderWeekday);
+              const canChooseWeekday = schedule.key === 'preschool';
+              const isEditingSchedule = scheduleEditingId === child.id;
+              return (
+                <article className={`child-profile-item ${child.id === selectedChildId ? 'selected' : ''}`} key={child.id}>
+                  <button type="button" className="child-profile-select" onClick={() => onSelectChild(child.id)}>
+                    <span className="child-avatar">{child.name.slice(0, 1)}</span>
+                    <span>
+                      <strong>{child.name}</strong>
+                      <small>{child.birthDate || '생년월일 미등록'}</small>
+                    </span>
+                    <b>{child.id === selectedChildId ? '관리 중' : '선택'}</b>
+                  </button>
+                  <button type="button" className="child-edit-button" onClick={() => startEdit(child)}>수정</button>
+
+                  {canChooseWeekday ? (
+                    <button
+                      type="button"
+                      className="child-schedule-button"
+                      aria-expanded={isEditingSchedule}
+                      onClick={() => setScheduleEditingId(isEditingSchedule ? null : child.id)}
+                    >
+                      <span>◷ {schedule.scheduleLabel}</span>
+                      <small>{isEditingSchedule ? '요일 선택 닫기' : '눌러서 요일 변경 ›'}</small>
+                    </button>
+                  ) : (
+                    <div className="child-fixed-schedule">
+                      <span>◷ {schedule.scheduleLabel}</span>
+                      <small>연령별 자동 일정</small>
+                    </div>
+                  )}
+
+                  {isEditingSchedule && (
+                    <div className="weekday-picker" role="group" aria-label={`${child.name} 촬영 요일 선택`}>
+                      {captureWeekdays.map((day) => (
+                        <button
+                          type="button"
+                          key={day.value}
+                          className={schedule.reminderWeekday === day.value ? 'active' : ''}
+                          disabled={isScheduleSaving}
+                          aria-label={`${day.label}로 변경`}
+                          onClick={() => handleWeekdayChange(child, day.value)}
+                        >
+                          {day.shortLabel}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                </article>
+              );
+            })}
           </div>
         )}
 
@@ -109,14 +208,16 @@ function ChildProfilePage({ onNavigate, onBack, token, selectedChildId, onSelect
             <input value={name} onChange={(event) => setName(event.target.value)} placeholder="예: 지우" maxLength={20} />
           </label>
           <label className="input-group">
-            <span>생년월일 <small>(선택)</small></span>
-            <input type="date" value={birthDate} onChange={(event) => setBirthDate(event.target.value)} />
+            <span>생년월일 <small>(맞춤 일정 자동 설정)</small></span>
+            <input type="date" value={birthDate} onChange={(event) => setBirthDate(event.target.value)} required />
           </label>
-          <button type="submit" className="login-button" disabled={isSaving || !name.trim()}>
+          <p className="birthdate-schedule-help">생년월일은 연령별 촬영 일정을 자동으로 설정하는 데 사용돼요.</p>
+          <button type="submit" className="login-button" disabled={isSaving || !name.trim() || !birthDate}>
             {isSaving ? '저장 중...' : editingId ? '수정 내용 저장' : '자녀 등록'}
           </button>
         </form>
 
+        {profileNotice && <p className="profile-schedule-notice" role="status">✓ {profileNotice}</p>}
         {error && <p className="social-error" role="alert">{error}</p>}
       </div>
     </section>

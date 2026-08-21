@@ -43,6 +43,7 @@ yarn-error.log*
 /pc_setup/*.pt
 /pc_setup/backend/model/*.pt
 /pc_setup/backend/*.db
+/pc_setup/backend/uploads/
 /pc_setup/dataset_audit/chatgpt_review/
 /pc_setup/dataset_audit/examples/
 /runs/

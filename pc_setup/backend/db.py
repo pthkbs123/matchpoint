@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS children (
     user_id INTEGER NOT NULL REFERENCES users(id),
     name TEXT NOT NULL,
     birth_date TEXT,
+    reminder_weekday INTEGER,
     created_at TEXT NOT NULL
 );
 
@@ -50,7 +51,10 @@ CREATE TABLE IF NOT EXISTS analysis_records (
     normal_count INTEGER NOT NULL,
     total_detections INTEGER NOT NULL,
     score INTEGER NOT NULL,
-    detections_json TEXT NOT NULL
+    yellowing_index REAL,
+    gum_inflammation_index REAL,
+    detections_json TEXT NOT NULL,
+    image_path TEXT
 );
 """
 
@@ -88,10 +92,18 @@ def _migrate(conn):
     record_columns = {row["name"] for row in conn.execute("PRAGMA table_info(analysis_records)")}
     if "child_id" not in record_columns:
         conn.execute("ALTER TABLE analysis_records ADD COLUMN child_id INTEGER REFERENCES children(id)")
+    if "image_path" not in record_columns:
+        conn.execute("ALTER TABLE analysis_records ADD COLUMN image_path TEXT")
+    if "yellowing_index" not in record_columns:
+        conn.execute("ALTER TABLE analysis_records ADD COLUMN yellowing_index REAL")
+    if "gum_inflammation_index" not in record_columns:
+        conn.execute("ALTER TABLE analysis_records ADD COLUMN gum_inflammation_index REAL")
 
     child_columns = {row["name"] for row in conn.execute("PRAGMA table_info(children)")}
     if "birth_date" not in child_columns:
         conn.execute("ALTER TABLE children ADD COLUMN birth_date TEXT")
+    if "reminder_weekday" not in child_columns:
+        conn.execute("ALTER TABLE children ADD COLUMN reminder_weekday INTEGER")
 
     conn.execute(
         """

@@ -8,6 +8,11 @@ const HIGH_QUALITY_VIDEO_CONSTRAINTS = {
   resizeMode: 'none',
 };
 
+const STABILIZATION_FRAME_COUNT = 5;
+const STABILIZATION_INTERVAL_MS = 55;
+
+const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
 function createTrackConstraints(advanced) {
   return {
     ...HIGH_QUALITY_VIDEO_CONSTRAINTS,
@@ -19,9 +24,6 @@ function CameraPage({ onNavigate, onBack, onCapture, token, selectedChildId }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const fileInputRef = useRef(null);
-  const guideRef = useRef(null);
-  const imageCaptureRef = useRef(null);
-  const photoCapabilitiesRef = useRef(null);
   const capabilitiesRef = useRef({});
   const focusTargetRef = useRef(null);
   const focusTimerRef = useRef(null);
@@ -66,8 +68,6 @@ function CameraPage({ onNavigate, onBack, onCapture, token, selectedChildId }) {
     setCameraQuality('');
     capabilitiesRef.current = {};
     focusTargetRef.current = null;
-    imageCaptureRef.current = null;
-    photoCapabilitiesRef.current = null;
 
     getUserMedia.call(navigator.mediaDevices, {
       video: {
@@ -101,22 +101,6 @@ function CameraPage({ onNavigate, onBack, onCapture, token, selectedChildId }) {
         setTapFocusSupported(supportsTapFocus);
         setCameraQuality(longestSide >= 1920 ? 'FHD' : longestSide >= 1280 ? 'HD' : longestSide ? `${settings.width}×${settings.height}` : '');
 
-        if ('ImageCapture' in window && videoTrack) {
-          try {
-            const imageCapture = new window.ImageCapture(videoTrack);
-            imageCaptureRef.current = imageCapture;
-            if (typeof imageCapture.getPhotoCapabilities === 'function') {
-              imageCapture.getPhotoCapabilities()
-                .then((photoCapabilities) => {
-                  if (!cancelled) photoCapabilitiesRef.current = photoCapabilities;
-                })
-                .catch(() => { photoCapabilitiesRef.current = null; });
-            }
-          } catch {
-            imageCaptureRef.current = null;
-          }
-        }
-
         if (focusModes.includes('continuous')) {
           videoTrack.applyConstraints(createTrackConstraints({ focusMode: 'continuous' })).catch(() => {});
         }
@@ -129,8 +113,6 @@ function CameraPage({ onNavigate, onBack, onCapture, token, selectedChildId }) {
       cancelled = true;
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
-      imageCaptureRef.current = null;
-      photoCapabilitiesRef.current = null;
       clearTimeout(focusTimerRef.current);
     };
   }, [facingMode]);
@@ -177,15 +159,19 @@ function CameraPage({ onNavigate, onBack, onCapture, token, selectedChildId }) {
     let normalizedY;
 
     if (videoAspectRatio > viewAspectRatio) {
-      const renderedWidth = rect.height * videoAspectRatio;
-      const croppedWidth = (renderedWidth - rect.width) / 2;
-      normalizedX = (visualX + croppedWidth) / renderedWidth;
-      normalizedY = visualY / rect.height;
+      const renderedWidth = rect.width;
+      const renderedHeight = renderedWidth / videoAspectRatio;
+      const offsetY = (rect.height - renderedHeight) / 2;
+      if (visualY < offsetY || visualY > offsetY + renderedHeight) return;
+      normalizedX = visualX / renderedWidth;
+      normalizedY = (visualY - offsetY) / renderedHeight;
     } else {
-      const renderedHeight = rect.width / videoAspectRatio;
-      const croppedHeight = (renderedHeight - rect.height) / 2;
-      normalizedX = visualX / rect.width;
-      normalizedY = (visualY + croppedHeight) / renderedHeight;
+      const renderedHeight = rect.height;
+      const renderedWidth = renderedHeight * videoAspectRatio;
+      const offsetX = (rect.width - renderedWidth) / 2;
+      if (visualX < offsetX || visualX > offsetX + renderedWidth) return;
+      normalizedX = (visualX - offsetX) / renderedWidth;
+      normalizedY = visualY / renderedHeight;
     }
 
     if (facingMode === 'user') normalizedX = 1 - normalizedX;
@@ -228,11 +214,10 @@ function CameraPage({ onNavigate, onBack, onCapture, token, selectedChildId }) {
     focusTimerRef.current = setTimeout(() => setFocusIndicator(null), 1400);
   };
 
-  const captureVideoFrame = () => new Promise((resolve) => {
+  const createVideoFrameCanvas = () => {
     const video = videoRef.current;
     if (!video || !video.videoWidth) {
-      resolve(null);
-      return;
+      return null;
     }
 
     const canvas = document.createElement('canvas');
@@ -240,137 +225,86 @@ function CameraPage({ onNavigate, onBack, onCapture, token, selectedChildId }) {
     canvas.height = video.videoHeight;
     const context = canvas.getContext('2d');
     if (!context) {
-      resolve(null);
-      return;
+      return null;
     }
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = 'high';
-    context.drawImage(video, 0, 0);
-
-    canvas.toBlob(resolve, 'image/jpeg', 0.98);
-  });
-
-  const captureGuideFrame = () => new Promise((resolve) => {
-    const video = videoRef.current;
-    const guide = guideRef.current;
-    if (!video || !guide || !video.videoWidth || !video.videoHeight) {
-      resolve(null);
-      return;
-    }
-
-    const videoRect = video.getBoundingClientRect();
-    const guideRect = guide.getBoundingClientRect();
-    const videoAspectRatio = video.videoWidth / video.videoHeight;
-    const viewAspectRatio = videoRect.width / videoRect.height;
-    let renderedWidth;
-    let renderedHeight;
-    let cropOffsetX = 0;
-    let cropOffsetY = 0;
-
-    if (videoAspectRatio > viewAspectRatio) {
-      renderedHeight = videoRect.height;
-      renderedWidth = renderedHeight * videoAspectRatio;
-      cropOffsetX = (renderedWidth - videoRect.width) / 2;
-    } else {
-      renderedWidth = videoRect.width;
-      renderedHeight = renderedWidth / videoAspectRatio;
-      cropOffsetY = (renderedHeight - videoRect.height) / 2;
-    }
-
-    const guideX = guideRect.left - videoRect.left;
-    const guideY = guideRect.top - videoRect.top;
-    const sourceX = ((guideX + cropOffsetX) / renderedWidth) * video.videoWidth;
-    const sourceY = ((guideY + cropOffsetY) / renderedHeight) * video.videoHeight;
-    const sourceWidth = (guideRect.width / renderedWidth) * video.videoWidth;
-    const sourceHeight = (guideRect.height / renderedHeight) * video.videoHeight;
-    const clampedWidth = Math.min(sourceWidth, video.videoWidth - sourceX);
-    const clampedHeight = Math.min(sourceHeight, video.videoHeight - sourceY);
-
-    if (clampedWidth < 1 || clampedHeight < 1) {
-      resolve(null);
-      return;
-    }
-
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(clampedWidth));
-    canvas.height = Math.max(1, Math.round(clampedHeight));
-    const context = canvas.getContext('2d');
-    if (!context) {
-      resolve(null);
-      return;
-    }
-
-    context.imageSmoothingEnabled = true;
-    context.imageSmoothingQuality = 'high';
-
     if (facingMode === 'user') {
-      const mirroredSourceX = video.videoWidth - sourceX - clampedWidth;
       context.translate(canvas.width, 0);
       context.scale(-1, 1);
-      context.drawImage(
-        video,
-        mirroredSourceX,
-        sourceY,
-        clampedWidth,
-        clampedHeight,
-        0,
-        0,
-        canvas.width,
-        canvas.height
-      );
+      context.drawImage(video, 0, 0);
     } else {
-      context.drawImage(
-        video,
-        sourceX,
-        sourceY,
-        clampedWidth,
-        clampedHeight,
-        0,
-        0,
-        canvas.width,
-        canvas.height
-      );
+      context.drawImage(video, 0, 0);
     }
 
-    canvas.toBlob(resolve, 'image/jpeg', 0.98);
-  });
+    return canvas;
+  };
+
+  const calculateSharpness = (sourceCanvas) => {
+    const sampleCanvas = document.createElement('canvas');
+    const sampleWidth = 180;
+    const sampleHeight = Math.max(1, Math.round(sampleWidth * sourceCanvas.height / sourceCanvas.width));
+    sampleCanvas.width = sampleWidth;
+    sampleCanvas.height = sampleHeight;
+    const context = sampleCanvas.getContext('2d', { willReadFrequently: true });
+    if (!context) return 0;
+    context.drawImage(sourceCanvas, 0, 0, sampleWidth, sampleHeight);
+
+    const { data } = context.getImageData(0, 0, sampleWidth, sampleHeight);
+    const luminance = (index) => data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114;
+    let sum = 0;
+    let squaredSum = 0;
+    let count = 0;
+
+    for (let y = 1; y < sampleHeight - 1; y += 1) {
+      for (let x = 1; x < sampleWidth - 1; x += 1) {
+        const center = (y * sampleWidth + x) * 4;
+        const laplacian = 4 * luminance(center)
+          - luminance(center - 4)
+          - luminance(center + 4)
+          - luminance(center - sampleWidth * 4)
+          - luminance(center + sampleWidth * 4);
+        sum += laplacian;
+        squaredSum += laplacian * laplacian;
+        count += 1;
+      }
+    }
+
+    if (!count) return 0;
+    const average = sum / count;
+    return squaredSum / count - average * average;
+  };
+
+  const captureStabilizedFrame = async () => {
+    let sharpestCanvas = null;
+    let highestSharpness = -1;
+
+    for (let index = 0; index < STABILIZATION_FRAME_COUNT; index += 1) {
+      const canvas = createVideoFrameCanvas();
+      if (canvas) {
+        const sharpness = calculateSharpness(canvas);
+        if (sharpness > highestSharpness) {
+          sharpestCanvas = canvas;
+          highestSharpness = sharpness;
+        }
+      }
+      if (index < STABILIZATION_FRAME_COUNT - 1) await wait(STABILIZATION_INTERVAL_MS);
+    }
+
+    if (!sharpestCanvas) return null;
+    return new Promise((resolve) => sharpestCanvas.toBlob(resolve, 'image/jpeg', 0.96));
+  };
 
   const handleShutter = async () => {
     if (isCapturing) return;
     setIsCapturing(true);
-    setCameraNotice('고화질 사진을 저장하는 중이에요...');
+    setCameraNotice('흔들림이 적은 프레임을 고르는 중이에요...');
 
-    const analysisBlobPromise = captureGuideFrame();
-    let originalBlob = null;
-    const imageCapture = imageCaptureRef.current;
+    const capturedBlob = await captureStabilizedFrame();
 
-    if (imageCapture) {
-      const photoCapabilities = photoCapabilitiesRef.current;
-      const photoSettings = {};
-      if (Number.isFinite(photoCapabilities?.imageWidth?.max)) {
-        photoSettings.imageWidth = photoCapabilities.imageWidth.max;
-      }
-      if (Number.isFinite(photoCapabilities?.imageHeight?.max)) {
-        photoSettings.imageHeight = photoCapabilities.imageHeight.max;
-      }
-
-      try {
-        originalBlob = await imageCapture.takePhoto(photoSettings);
-      } catch {
-        try {
-          originalBlob = await imageCapture.takePhoto();
-        } catch {
-          originalBlob = null;
-        }
-      }
-    }
-
-    if (!originalBlob) originalBlob = await captureVideoFrame();
-    const analysisBlob = await analysisBlobPromise || originalBlob;
-
-    if (analysisBlob) {
+    if (capturedBlob) {
       setIsCapturing(false);
-      onCapture(analysisBlob, originalBlob || analysisBlob);
+      onCapture(capturedBlob, capturedBlob);
       onNavigate('preview');
       return;
     } else {
@@ -419,8 +353,8 @@ function CameraPage({ onNavigate, onBack, onCapture, token, selectedChildId }) {
             aria-hidden="true"
           />
         )}
-        <p className="camera-hint">{selectedChildId == null ? '촬영 전에 자녀 프로필을 선택해 주세요' : error || cameraNotice || (tapFocusSupported ? '화면을 눌러 원하는 위치에 초점을 맞춰주세요' : '치아가 가이드 안에 들어오도록 맞춰주세요')}</p>
-        <div ref={guideRef} className="camera-guide" />
+        <p className="camera-hint">{selectedChildId == null ? '촬영 전에 자녀 프로필을 선택해 주세요' : error || cameraNotice || (tapFocusSupported ? '전체 화각을 유지하며, 화면을 눌러 초점을 맞출 수 있어요' : '보이는 전체 화각 그대로 촬영돼요')}</p>
+        <div className="camera-guide" />
         <button className="camera-guide-link" onClick={() => onNavigate('care-guide')}>촬영·위생 가이드</button>
       </div>
       <div className="camera-controls">

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../api';
 
-function MyPage({ onNavigate, onBack, onLogout, user, token, provider }) {
+function MyPage({ onNavigate, onBack, onLogout, user, token, provider, selectedChildId }) {
   const userName = user?.name || user?.nickname || '한이음';
   const userEmail = user?.email?.endsWith('@oauth.smileguard.local')
     ? `${provider === 'google' ? 'Google' : provider === 'kakao' ? '카카오' : '소셜'} 계정으로 로그인됨`
@@ -12,17 +12,18 @@ function MyPage({ onNavigate, onBack, onLogout, user, token, provider }) {
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
-    apiFetch('/api/report/summary', { token })
+    const query = selectedChildId ? `?child_id=${selectedChildId}` : '';
+    apiFetch(`/api/report/summary${query}`, { token })
       .then((data) => { if (!cancelled) setSummary(data); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [token]);
+  }, [token, selectedChildId]);
 
   const menuItems = [
     { icon: '👤', title: '내 정보 관리', description: '이름과 프로필을 수정해요', onClick: () => onNavigate('profile') },
     { icon: '☺', title: '자녀 프로필', description: '자녀를 등록하고 관리 대상을 선택해요', onClick: () => onNavigate('child-profile') },
     { icon: '⏱', title: '촬영 히스토리', description: '자녀별 촬영 기록을 확인해요', onClick: () => onNavigate('history') },
-    { icon: '⚙️', title: '알림 설정', description: '주간 리포트와 주의 알림을 관리해요', onClick: () => onNavigate('notification') },
+    { icon: '⚙️', title: '알림 설정', description: '맞춤 촬영 일정과 상태 알림을 관리해요', onClick: () => onNavigate('notification') },
     { icon: '✦', title: '촬영·위생 가이드', description: '위생 커버와 촬영 방법을 확인해요', onClick: () => onNavigate('care-guide') },
   ];
 
@@ -46,13 +47,13 @@ function MyPage({ onNavigate, onBack, onLogout, user, token, provider }) {
           </div>
           <h2>{userName} 님</h2>
           <p>{userEmail}</p>
-          <span className="profile-status">SmileGuard와 함께한 지 {summary?.member_since_days ?? 0}일째</span>
+          <span className="profile-status">SmileGuard와 함께한 지 {summary?.member_since_days ?? 1}일째</span>
         </div>
 
         <div className="mypage-summary">
-          <div><strong>{summary?.current_score ?? 100}</strong><span>현재 점수</span></div>
+          <div><strong>{summary?.current_score ?? 100}</strong><span>최근 촬영 점수</span></div>
           <div><strong>{summary?.total_scans ?? 0}회</strong><span>누적 측정</span></div>
-          <div><strong>{summary?.streak_days ?? 0}일</strong><span>연속 관리</span></div>
+          <div><strong>{summary?.streak_periods ?? 0}회</strong><span>연속 주기</span></div>
         </div>
 
         <div className="mypage-menu">

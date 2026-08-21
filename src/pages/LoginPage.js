@@ -267,7 +267,7 @@ function LoginPage({ onLogin, onNavigate }) {
       <div className="login-content">
         <div className="brand-mark" aria-hidden="true"><span>✓</span></div>
         <p className="eyebrow">SMILEGUARD</p>
-        <h1>건강한 미소를<br />매일 확인하세요</h1>
+        <h1>건강한 미소를<br />알맞은 주기로 확인하세요</h1>
         <p className="subtext">나만의 구강 건강 기록을 시작해 보세요.</p>
 
         <form className="login-form" onSubmit={handleSubmit}>
