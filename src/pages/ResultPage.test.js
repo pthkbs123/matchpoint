@@ -86,3 +86,54 @@ test('공통 설정에서 캐릭터 피드백을 끄면 일반 결과 안내를 
   expect(container.querySelector('[data-feedback-event]')).not.toBeInTheDocument();
   expect(screen.getByText('확인 필요')).toBeInTheDocument();
 });
+
+test('개인 LAB 기준값이 3회 미만이면 설정 진행률을 표시한다', () => {
+  render(
+    <ResultPage
+      onNavigate={jest.fn()}
+      analysisResult={{
+        ...cavityResult,
+        summary: {
+          ...cavityResult.summary,
+          yellowing_index: null,
+          gum_inflammation_index: null,
+        },
+        color_baseline: {
+          source: 'personal',
+          required_samples: 3,
+          yellowing: { sample_count: 2, ready: false },
+          gum: { sample_count: 1, ready: false },
+        },
+      }}
+    />
+  );
+
+  expect(screen.getByText('내 아이의 평소 상태를 확인하고 있어요')).toBeInTheDocument();
+  expect(screen.getByText('기준 촬영 2/3')).toBeInTheDocument();
+  expect(screen.getByText('기준 촬영 1/3')).toBeInTheDocument();
+});
+
+test('세 번째 촬영으로 기준값을 완성하면 다음 촬영부터 비교한다고 안내한다', () => {
+  render(
+    <ResultPage
+      onNavigate={jest.fn()}
+      analysisResult={{
+        ...cavityResult,
+        summary: {
+          ...cavityResult.summary,
+          yellowing_index: null,
+          gum_inflammation_index: null,
+        },
+        color_baseline: {
+          source: 'personal',
+          required_samples: 3,
+          yellowing: { sample_count: 3, ready: true, comparison_available: false },
+          gum: { sample_count: 3, ready: true, comparison_available: false },
+        },
+      }}
+    />
+  );
+
+  expect(screen.getAllByText('맞춤 기준 완료')).toHaveLength(2);
+  expect(screen.getAllByText('다음 촬영부터 비교')).toHaveLength(2);
+});
