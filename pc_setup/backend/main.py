@@ -11,7 +11,9 @@ import os
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+import cv2
 import httpx
+import numpy as np
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +23,12 @@ from google.oauth2 import id_token
 from PIL import Image, ImageOps
 from pydantic import BaseModel
 from ultralytics import YOLO
+
+from color_analysis import (
+    compute_gum_inflammation_index,
+    compute_yellowing_index,
+    preprocess_bgr,
+)
 
 BACKEND_DIR = Path(__file__).parent
 PROJECT_ROOT = BACKEND_DIR.parent.parent
@@ -543,6 +551,16 @@ async def analyze(
     normal_count = sum(1 for d in detections if d["class"] == "normal")
     score = _score_from_detections(cavity_count)
 
+    yellowing_index = None
+    gum_inflammation_index = None
+    try:
+        image_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+        preprocessed = preprocess_bgr(image_bgr)
+        yellowing_index = compute_yellowing_index(preprocessed, detections)
+        gum_inflammation_index = compute_gum_inflammation_index(preprocessed, detections)
+    except Exception as exc:
+        print(f"색상 분석 실패(무시하고 진행): {exc}")
+
     if user is not None:
         with get_conn() as conn:
             if child_id is not None:
@@ -555,10 +573,14 @@ async def analyze(
             cursor = conn.execute(
                 """
                 INSERT INTO analysis_records
-                    (user_id, child_id, created_at, cavity_count, normal_count, total_detections, score, detections_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (user_id, child_id, created_at, cavity_count, normal_count, total_detections, score,
+                     yellowing_index, gum_inflammation_index, detections_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (user["id"], child_id, now_iso(), cavity_count, normal_count, len(detections), score, json.dumps(detections)),
+                (
+                    user["id"], child_id, now_iso(), cavity_count, normal_count, len(detections), score,
+                    yellowing_index, gum_inflammation_index, json.dumps(detections),
+                ),
             )
             CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
             image_name = f"{user['id']}_{cursor.lastrowid}.jpg"
@@ -583,8 +605,8 @@ async def analyze(
             "total_detections": len(detections),
             "score": score,
             "overall_score": score,
-            "yellowing_index": None,
-            "gum_inflammation_index": None,
+            "yellowing_index": yellowing_index,
+            "gum_inflammation_index": gum_inflammation_index,
         },
     }
 
