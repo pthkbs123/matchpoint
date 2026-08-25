@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS children (
     yellowing_baseline_count INTEGER NOT NULL DEFAULT 0,
     gum_baseline_a REAL,
     gum_baseline_count INTEGER NOT NULL DEFAULT 0,
+    color_baseline_generation INTEGER NOT NULL DEFAULT 1,
+    color_baseline_reset_at TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -137,6 +139,12 @@ def _migrate(conn):
         conn.execute("ALTER TABLE children ADD COLUMN gum_baseline_a REAL")
     if "gum_baseline_count" not in child_columns:
         conn.execute("ALTER TABLE children ADD COLUMN gum_baseline_count INTEGER NOT NULL DEFAULT 0")
+    if "color_baseline_generation" not in child_columns:
+        conn.execute(
+            "ALTER TABLE children ADD COLUMN color_baseline_generation INTEGER NOT NULL DEFAULT 1"
+        )
+    if "color_baseline_reset_at" not in child_columns:
+        conn.execute("ALTER TABLE children ADD COLUMN color_baseline_reset_at TEXT")
 
     conn.execute(
         """
