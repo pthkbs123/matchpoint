@@ -1,7 +1,146 @@
-# 충치 탐지 모델 학습 — 진행 상황 (2026-08-21 갱신)
+# 충치 탐지 모델·앱 개발 — 진행 상황 (2026-08-25 갱신)
 
 새 컴퓨터/새 Claude Code 세션에서 이 프로젝트를 이어갈 때 이 파일부터 읽으면 맥락 파악이 됩니다.
 아래 "지금 당장 이어서 할 일"이 최신이고, 그 아래 옛 기록 중 일부는 지금 시점에선 **참고용(더 이상 최선의 방법이 아님)**이니 헷갈리지 말 것 — 최신 결론은 항상 이 섹션 우선.
+
+## 2026-08-25 최신 인수인계 — 학교 PC에서 여기부터 읽기
+
+### GitHub와 PR 상태
+
+- 개인 저장소: `origin = https://github.com/pthkbs123/matchpoint.git`
+- 팀 저장소: `upstream = https://github.com/yuly0531/matchpoint.git`
+- 팀 최신 `main`을 개인 `main`에 병합하고 개인 GitHub에 push 완료
+  - 개인 `main` 병합 커밋: `5c7ba0c`
+- 팀 `main`을 기준으로 PR 전용 브랜치를 새로 생성함
+  - 브랜치: `feature/color-analysis-completion`
+  - 커밋: `5ca10d0` (`색상 기준 재설정과 실데이터 보정 기능 추가`)
+  - 개인 GitHub에 push 완료
+  - 사용자가 팀 저장소를 대상으로 Pull Request 생성 완료
+- 이 PR 브랜치는 팀 `main` 이후 기능 커밋 1개만 포함하도록 만들었음. 개인 `PROGRESS.md` 기록이나 모델 학습용 개인 커밋은 PR에 섞이지 않음.
+
+### 팀 main에 이미 있던 기능 — 반드시 유지
+
+- 자녀별 최초 3회 색상 측정값의 누적 평균을 개인 기준으로 저장
+- LAB b* 치아 황변 측정, LAB a* 잇몸 측정, 개인 기준 대비 변화량 계산
+- 결과 화면의 개인 기준 수집 진행률 표시
+- 날짜별·월별·연간 추이와 월간 리포트
+- 알림 화면과 월간 리포트 연결
+
+팀 구현을 우선으로 삼았으며, 위 기능은 새 PR에서도 삭제하거나 다른 방식으로 교체하지 않았음.
+
+### PR에서 추가한 색상 분석 보완 기능
+
+- OpenCV 전처리 3종 비교
+  - `original`
+  - `wb_clahe`
+  - `wb_bilateral_clahe`
+- 자녀별 `기준 다시 만들기`
+  - 기존 촬영 이력은 삭제하지 않음
+  - 자녀 테이블의 색상 기준값/수집 횟수만 초기화
+  - 기준 세대를 1 증가시키고 새 측정 3회부터 다시 수집
+- 잇몸 HSV 보조 분석
+  - HSV H/S/V 원시값
+  - HSV 채도 기반 보조 건강점수
+  - LAB 점수와 HSV 보조점수의 차이 및 `high/medium/low` 일치도
+- `마이페이지 → 색상 분석 테스트` 화면
+  - 같은 사진을 전처리 3종으로 비교
+  - 촬영 조건(같은 조명/밝음/어두움/각도 변경) 기록
+  - 참고 상태(정상/황변/잇몸 붉음/둘 다) 기록
+  - 전처리별 반복 측정 변동 폭 표시
+  - 결과 브라우저 로컬 저장 및 CSV 내보내기
+- 실제 라벨 데이터 기반 보정 후보
+  - 기본 운영 전처리인 `WB + CLAHE` 결과 사용
+  - 정상 사진 3장과 변화 사진 3장 이상이 모이면 LAB b/a, HSV S의 GOOD/HIGH 후보 계산
+  - 후보값은 자동 적용하지 않고 화면에 `.env` 형식으로 제시
+- 색상 보정 상수를 `pc_setup/backend/.env`로 조정할 수 있도록 분리
+
+### 검증 완료
+
+- 백엔드 전체 테스트: **11개 통과**
+- 프런트엔드 전체 테스트: **39개 통과**
+- React 운영 빌드: **성공**
+- 팀의 월간 리포트·알림·기존 3회 기준 테스트를 모두 포함한 결과임
+
+### 아직 완료로 판단하면 안 되는 부분
+
+- 기능 구현은 끝났지만 LAB/HSV 숫자는 아직 임상적으로 확정된 값이 아님
+- 실제 사진으로 전처리 안정성, 잇몸 ROI, 정상/변화 분리도를 확인해야 함
+- 현재 잇몸 후보 영역은 치아 박스 바로 아래 30% 띠를 사용함. 프로젝트 요구사항의 10~15% 조정은 실제 사진 결과를 보고 결정할 것
+- 공개 전문 카메라 사진만으로 프로젝트 카메라의 최종 색상 임계값을 확정하면 안 됨
+- 최종 단계에서는 프로젝트 카메라·LED로 촬영한 동일 대상 사진이 최소 3~6장 필요함
+
+### 공개 사진 검증 계획
+
+사용자가 직접 촬영하기 전에 공개 데이터로 초기 검증 가능함.
+
+1. 우선 후보: MIO 공개 데이터셋
+   - 건강한 잇몸, 치은염, 치주염으로 분류된 전문가 검증 구강 사진 765장
+   - https://zenodo.org/records/21140854
+   - 정상(`SANO.zip`) 약 433.8MB + 치은염(`GINGIVITIS.zip`) 약 441.6MB
+2. 보조 후보: Gingivitis Image Captioning Dataset
+   - MGI 0~4 단계가 표시된 고해상도 구강 사진 1,096장
+   - https://data.mendeley.com/datasets/3253gj88rr/1
+3. 정상 3장·치은염 3장 이상을 먼저 뽑아 전처리 3종, LAB·HSV, 잇몸 ROI를 비교
+4. 공개 데이터로 코드와 초기 범위를 검증한 뒤 프로젝트 카메라 사진으로 최종 보정
+
+### 학교 PC에서 이어가는 순서
+
+PR이 아직 병합되지 않았다면:
+
+```bash
+git clone https://github.com/pthkbs123/matchpoint.git
+cd matchpoint
+git remote add upstream https://github.com/yuly0531/matchpoint.git
+git fetch --all --prune
+git switch feature/color-analysis-completion
+```
+
+이미 저장소가 있다면:
+
+```bash
+git fetch --all --prune
+git switch feature/color-analysis-completion
+git pull origin feature/color-analysis-completion
+```
+
+PR이 팀 `main`에 병합된 뒤라면 개인 기능 브랜치 대신 팀 `main`을 사용:
+
+```bash
+git fetch upstream
+git switch main
+git pull upstream main
+```
+
+프런트엔드와 백엔드 실행 전 의존성 설치:
+
+```bash
+npm install
+cd pc_setup/backend
+python -m venv venv
+venv\Scripts\activate
+pip install -r ../requirements.txt
+```
+
+### 학교 PC에서 반드시 다시 만들어야 하는 로컬 설정
+
+`.env`는 보안상 Git에서 제외되므로 클론해도 따라오지 않음. 카카오 로그인에서
+`카카오 JavaScript 키가 설정되지 않았습니다`가 나오면 코드 오류가 아니라 `.env` 누락임.
+
+- 프로젝트 루트 `.env`: `.env.example`을 복사하고 `REACT_APP_KAKAO_JAVASCRIPT_KEY` 등 공개 키 입력
+- `pc_setup/backend/.env`: `.env.example`을 복사하고 `KAKAO_REST_API_KEY` 등 서버 키 입력
+- `.env` 작성 후 React와 FastAPI 서버를 모두 재시작
+- 실제 키나 Client Secret을 Git에 커밋하지 말 것
+
+### 다음 작업 우선순위
+
+1. 생성한 PR의 팀 리뷰·병합 여부 확인
+2. 공개 정상/치은염 사진을 내려받아 3장 이상씩 표본 선정
+3. 색상 분석 테스트 화면 또는 비교 API로 전처리 3종 결과 수집
+4. CSV를 비교해 안정적인 전처리와 LAB/HSV 후보 범위 확인
+5. 잇몸 후보 영역을 30%에서 10~15% 중심으로 조정할 근거 확인
+6. 마지막에 프로젝트 카메라·LED 촬영 사진 3~6장으로 최종 임계값 보정
+
+---
 
 ## 2026-08-21 세션 (집 컴퓨터로 이어감) — 진행사항
 
