@@ -10,6 +10,7 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { apiFetch } from '../api';
+import { getDefaultWeeklyScheduleLabel } from '../captureSchedule';
 import { hasUnreadNotifications } from '../notificationStorage';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler);
@@ -156,8 +157,8 @@ function MainPage({ onNavigate, user, token, selectedChildId, onSelectChild }) {
           <h2>{selectedChild ? `${selectedChild.name} 구강 촬영` : '자녀 프로필을 등록해 주세요'}</h2>
           <p>{selectedChild
             ? summary?.scan_due
-              ? `${summary?.notification_schedule_label || '매주 일요일'} 촬영 시기가 되었어요.`
-              : `${summary?.notification_schedule_label || '매주 일요일'} 일정으로 관리하고 있어요.`
+              ? `${summary?.notification_schedule_label || getDefaultWeeklyScheduleLabel()} 촬영 시기가 되었어요.`
+              : `${summary?.notification_schedule_label || getDefaultWeeklyScheduleLabel()} 일정으로 관리하고 있어요.`
             : '촬영 기록을 자녀별로 안전하게 관리할 수 있어요.'}</p>
         </div>
 

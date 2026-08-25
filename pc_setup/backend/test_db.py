@@ -13,6 +13,9 @@ class DatabaseSchemaTests(unittest.TestCase):
                 db.DB_PATH = Path(temp_dir) / "test-smileguard.db"
                 db.init_db()
                 with db.get_conn() as conn:
+                    user_columns = {
+                        row["name"] for row in conn.execute("PRAGMA table_info(users)")
+                    }
                     child_columns = {
                         row["name"] for row in conn.execute("PRAGMA table_info(children)")
                     }
@@ -20,6 +23,7 @@ class DatabaseSchemaTests(unittest.TestCase):
                         row["name"] for row in conn.execute("PRAGMA table_info(analysis_records)")
                     }
 
+                self.assertIn("phone", user_columns)
                 self.assertTrue({
                     "yellowing_baseline_b",
                     "yellowing_baseline_count",
