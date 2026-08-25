@@ -24,9 +24,16 @@ from PIL import Image, ImageOps
 from pydantic import BaseModel
 from ultralytics import YOLO
 
+from color_baseline import REQUIRED_SAMPLES as COLOR_BASELINE_REQUIRED_SAMPLES
+from color_baseline import advance_running_baseline
 from color_analysis import (
-    compute_gum_inflammation_index,
-    compute_yellowing_index,
+    BASELINE_A,
+    BASELINE_B,
+    MAX_A,
+    MAX_B,
+    health_index_from_baseline,
+    measure_gum_lab_a,
+    measure_yellowing_lab_b,
     preprocess_bgr,
 )
 
@@ -48,6 +55,7 @@ from auth import (
 )
 from db import get_conn, init_db, now_iso
 from mailer import send_reset_password_email
+from monthly_report import build_monthly_report_notification
 
 MODEL_PATH = BACKEND_DIR / "model" / "best.pt"
 CAPTURE_DIR = BACKEND_DIR / "uploads"
@@ -396,11 +404,20 @@ def reset_password_confirm(payload: ResetPasswordConfirmRequest):
 # 자녀 프로필 (보호자 1명이 여러 자녀를 등록할 수 있음)
 # ---------------------------------------------------------------------------
 def _child_json(row) -> dict:
+    yellowing_count = row["yellowing_baseline_count"] or 0
+    gum_count = row["gum_baseline_count"] or 0
     return {
         "id": row["id"],
         "name": row["name"],
         "birthDate": row["birth_date"],
         "reminderWeekday": row["reminder_weekday"],
+        "colorBaseline": {
+            "requiredSamples": COLOR_BASELINE_REQUIRED_SAMPLES,
+            "yellowingSampleCount": yellowing_count,
+            "yellowingReady": yellowing_count >= COLOR_BASELINE_REQUIRED_SAMPLES,
+            "gumSampleCount": gum_count,
+            "gumReady": gum_count >= COLOR_BASELINE_REQUIRED_SAMPLES,
+        },
         "createdAt": row["created_at"],
     }
 
@@ -513,6 +530,38 @@ def _score_from_detections(cavity_count: int) -> int:
     return max(0, 100 - cavity_count * 15)
 
 
+def _update_child_color_baseline(conn, child_row, lab_b_mean, lab_a_mean) -> dict:
+    yellowing_was_ready = (child_row["yellowing_baseline_count"] or 0) >= COLOR_BASELINE_REQUIRED_SAMPLES
+    gum_was_ready = (child_row["gum_baseline_count"] or 0) >= COLOR_BASELINE_REQUIRED_SAMPLES
+    yellowing_baseline, yellowing_count = advance_running_baseline(
+        child_row["yellowing_baseline_b"],
+        child_row["yellowing_baseline_count"],
+        lab_b_mean,
+    )
+    gum_baseline, gum_count = advance_running_baseline(
+        child_row["gum_baseline_a"],
+        child_row["gum_baseline_count"],
+        lab_a_mean,
+    )
+    conn.execute(
+        """
+        UPDATE children
+        SET yellowing_baseline_b = ?, yellowing_baseline_count = ?,
+            gum_baseline_a = ?, gum_baseline_count = ?
+        WHERE id = ?
+        """,
+        (yellowing_baseline, yellowing_count, gum_baseline, gum_count, child_row["id"]),
+    )
+    return {
+        "yellowing_baseline": yellowing_baseline,
+        "yellowing_count": yellowing_count,
+        "yellowing_was_ready": yellowing_was_ready,
+        "gum_baseline": gum_baseline,
+        "gum_count": gum_count,
+        "gum_was_ready": gum_was_ready,
+    }
+
+
 @app.post("/analyze")
 async def analyze(
     file: UploadFile = File(...),
@@ -551,35 +600,84 @@ async def analyze(
     normal_count = sum(1 for d in detections if d["class"] == "normal")
     score = _score_from_detections(cavity_count)
 
-    yellowing_index = None
-    gum_inflammation_index = None
+    lab_b_mean = None
+    lab_a_mean = None
     try:
         image_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
         preprocessed = preprocess_bgr(image_bgr)
-        yellowing_index = compute_yellowing_index(preprocessed, detections)
-        gum_inflammation_index = compute_gum_inflammation_index(preprocessed, detections)
+        lab_b_mean = measure_yellowing_lab_b(preprocessed, detections)
+        lab_a_mean = measure_gum_lab_a(preprocessed, detections)
     except Exception as exc:
         print(f"색상 분석 실패(무시하고 진행): {exc}")
+
+    baseline_source = "default"
+    yellowing_baseline = BASELINE_B
+    gum_baseline = BASELINE_A
+    yellowing_sample_count = 0
+    gum_sample_count = 0
+    yellowing_ready = True
+    gum_ready = True
+    yellowing_comparison_available = True
+    gum_comparison_available = True
+    yellowing_index = health_index_from_baseline(lab_b_mean, yellowing_baseline, MAX_B)
+    gum_inflammation_index = health_index_from_baseline(lab_a_mean, gum_baseline, MAX_A)
+    yellowing_delta = round(lab_b_mean - yellowing_baseline, 3) if lab_b_mean is not None else None
+    gum_inflammation_delta = round(lab_a_mean - gum_baseline, 3) if lab_a_mean is not None else None
 
     if user is not None:
         with get_conn() as conn:
             if child_id is not None:
                 child = conn.execute(
-                    "SELECT id FROM children WHERE id = ? AND user_id = ?",
+                    "SELECT * FROM children WHERE id = ? AND user_id = ?",
                     (child_id, user["id"]),
                 ).fetchone()
                 if child is None:
                     raise HTTPException(status_code=400, detail="선택한 자녀 정보를 확인할 수 없습니다.")
+                baseline_state = _update_child_color_baseline(conn, child, lab_b_mean, lab_a_mean)
+                baseline_source = "personal"
+                yellowing_baseline = baseline_state["yellowing_baseline"]
+                gum_baseline = baseline_state["gum_baseline"]
+                yellowing_sample_count = baseline_state["yellowing_count"]
+                gum_sample_count = baseline_state["gum_count"]
+                yellowing_ready = yellowing_sample_count >= COLOR_BASELINE_REQUIRED_SAMPLES
+                gum_ready = gum_sample_count >= COLOR_BASELINE_REQUIRED_SAMPLES
+                yellowing_comparison_available = baseline_state["yellowing_was_ready"]
+                gum_comparison_available = baseline_state["gum_was_ready"]
+                yellowing_index = health_index_from_baseline(
+                    lab_b_mean,
+                    yellowing_baseline if yellowing_comparison_available else None,
+                    MAX_B,
+                )
+                gum_inflammation_index = health_index_from_baseline(
+                    lab_a_mean,
+                    gum_baseline if gum_comparison_available else None,
+                    MAX_A,
+                )
+                yellowing_delta = (
+                    round(lab_b_mean - yellowing_baseline, 3)
+                    if lab_b_mean is not None and yellowing_comparison_available
+                    else None
+                )
+                gum_inflammation_delta = (
+                    round(lab_a_mean - gum_baseline, 3)
+                    if lab_a_mean is not None and gum_comparison_available
+                    else None
+                )
             cursor = conn.execute(
                 """
                 INSERT INTO analysis_records
                     (user_id, child_id, created_at, cavity_count, normal_count, total_detections, score,
-                     yellowing_index, gum_inflammation_index, detections_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     yellowing_index, gum_inflammation_index, lab_b_mean, lab_a_mean,
+                     yellowing_baseline_b, gum_baseline_a, yellowing_delta, gum_inflammation_delta,
+                     color_baseline_source, detections_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     user["id"], child_id, now_iso(), cavity_count, normal_count, len(detections), score,
-                    yellowing_index, gum_inflammation_index, json.dumps(detections),
+                    yellowing_index, gum_inflammation_index, lab_b_mean, lab_a_mean,
+                    yellowing_baseline if yellowing_ready else None,
+                    gum_baseline if gum_ready else None,
+                    yellowing_delta, gum_inflammation_delta, baseline_source, json.dumps(detections),
                 ),
             )
             CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
@@ -607,6 +705,28 @@ async def analyze(
             "overall_score": score,
             "yellowing_index": yellowing_index,
             "gum_inflammation_index": gum_inflammation_index,
+            "yellowing_delta": yellowing_delta,
+            "gum_inflammation_delta": gum_inflammation_delta,
+        },
+        "color_baseline": {
+            "source": baseline_source,
+            "required_samples": COLOR_BASELINE_REQUIRED_SAMPLES,
+            "yellowing": {
+                "sample_count": yellowing_sample_count,
+                "ready": yellowing_ready,
+                "comparison_available": yellowing_comparison_available,
+                "current_mean": lab_b_mean,
+                "baseline": yellowing_baseline if yellowing_ready else None,
+                "delta": yellowing_delta,
+            },
+            "gum": {
+                "sample_count": gum_sample_count,
+                "ready": gum_ready,
+                "comparison_available": gum_comparison_available,
+                "current_mean": lab_a_mean,
+                "baseline": gum_baseline if gum_ready else None,
+                "delta": gum_inflammation_delta,
+            },
         },
     }
 
@@ -855,7 +975,8 @@ def history(child_id: int | None = Query(None), user=Depends(require_user)):
             rows = conn.execute(
                 """
                 SELECT id, child_id, created_at, cavity_count, normal_count, total_detections,
-                       score, yellowing_index, gum_inflammation_index, image_path
+                       score, yellowing_index, gum_inflammation_index,
+                       yellowing_delta, gum_inflammation_delta, color_baseline_source, image_path
                 FROM analysis_records WHERE user_id = ? AND child_id = ? ORDER BY created_at DESC
                 """,
                 (user["id"], child_id),
@@ -864,7 +985,8 @@ def history(child_id: int | None = Query(None), user=Depends(require_user)):
             rows = conn.execute(
                 """
                 SELECT id, child_id, created_at, cavity_count, normal_count, total_detections,
-                       score, yellowing_index, gum_inflammation_index, image_path
+                       score, yellowing_index, gum_inflammation_index,
+                       yellowing_delta, gum_inflammation_delta, color_baseline_source, image_path
                 FROM analysis_records WHERE user_id = ? ORDER BY created_at DESC
                 """,
                 (user["id"],),
@@ -902,7 +1024,7 @@ def report_summary(child_id: int | None = Query(None), user=Depends(require_user
         if child_id is None:
             rows = conn.execute(
                 """
-                SELECT created_at, score, yellowing_index, gum_inflammation_index
+                SELECT created_at, score, yellowing_index, gum_inflammation_index, color_baseline_source
                 FROM analysis_records WHERE user_id = ? ORDER BY created_at ASC
                 """,
                 (user["id"],),
@@ -916,7 +1038,7 @@ def report_summary(child_id: int | None = Query(None), user=Depends(require_user
                 raise HTTPException(status_code=404, detail="자녀 정보를 찾을 수 없습니다.")
             rows = conn.execute(
                 """
-                SELECT created_at, score, yellowing_index, gum_inflammation_index
+                SELECT created_at, score, yellowing_index, gum_inflammation_index, color_baseline_source
                 FROM analysis_records
                 WHERE user_id = ? AND child_id = ? ORDER BY created_at ASC
                 """,
@@ -925,13 +1047,14 @@ def report_summary(child_id: int | None = Query(None), user=Depends(require_user
             selected_child = child
 
     korea_today = datetime.now(timezone(timedelta(hours=9))).date()
+    personal_color_rows = [row for row in rows if row["color_baseline_source"] == "personal"]
     metrics = {
         "overall": _build_metric_summary(rows, "overall", "score", "종합 점수", "점", korea_today),
         "yellowing": _build_metric_summary(
-            rows, "yellowing", "yellowing_index", "황변 변화", "점", korea_today
+            personal_color_rows, "yellowing", "yellowing_index", "황변 변화", "점", korea_today
         ),
         "gum": _build_metric_summary(
-            rows, "gum", "gum_inflammation_index", "잇몸 변화", "점", korea_today
+            personal_color_rows, "gum", "gum_inflammation_index", "잇몸 변화", "점", korea_today
         ),
     }
     overall_metric = metrics["overall"]
@@ -996,6 +1119,22 @@ def report_summary(child_id: int | None = Query(None), user=Depends(require_user
             "type": "capture_due",
             "score_change": None,
         })
+
+    korea_timezone = timezone(timedelta(hours=9))
+    monthly_measurements = [
+        {
+            "date": datetime.fromisoformat(row["created_at"]).astimezone(korea_timezone).date(),
+            "score": row["score"],
+        }
+        for row in rows
+    ]
+    monthly_report_notification = build_monthly_report_notification(
+        monthly_measurements,
+        korea_today,
+        f"child-{child_id}" if child_id is not None else "all",
+    )
+    if monthly_report_notification is not None:
+        notifications.insert(0, monthly_report_notification)
 
     return {
         "current_score": current_score,

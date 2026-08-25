@@ -17,6 +17,7 @@ import ProfilePage from './pages/ProfilePage';
 import ChildProfilePage from './pages/ChildProfilePage';
 import CareGuidePage from './pages/CareGuidePage';
 import PreCapturePage from './pages/PreCapturePage';
+import MonthlyReportPage from './pages/MonthlyReportPage';
 
 function App() {
   const savedSession = (() => {
@@ -36,6 +37,7 @@ function App() {
   const [capturedBlob, setCapturedBlob] = useState(null);
   const [capturedUrl, setCapturedUrl] = useState(null);
   const [analysisResult, setAnalysisResult] = useState(null);
+  const [monthlyReportMonth, setMonthlyReportMonth] = useState(null);
   const [selectedChildId, setSelectedChildId] = useState(() => {
     const saved = localStorage.getItem('smileguard-selected-child');
     return saved ? Number(saved) : null;
@@ -73,6 +75,11 @@ function App() {
       return;
     }
     navigate(fallbackPage, { replace: true });
+  }, [navigate]);
+
+  const openMonthlyReport = useCallback((month) => {
+    setMonthlyReportMonth(month || null);
+    navigate('monthly-report');
   }, [navigate]);
 
   useEffect(() => {
@@ -175,7 +182,7 @@ function App() {
     home: <MainPage onNavigate={navigate} user={session?.user} token={session?.accessToken} selectedChildId={selectedChildId} onSelectChild={handleSelectChild} />,
     mypage: <MyPage onNavigate={navigate} onBack={() => goBack('home')} user={session?.user} provider={session?.provider} token={session?.accessToken} selectedChildId={selectedChildId} onLogout={handleLogout} />,
     history: <HistoryPage onNavigate={navigate} onBack={() => goBack('mypage')} token={session?.accessToken} selectedChildId={selectedChildId} onSelectChild={handleSelectChild} />,
-    notification: <NotificationPage onNavigate={navigate} onBack={() => goBack('mypage')} user={session?.user} token={session?.accessToken} selectedChildId={selectedChildId} />,
+    notification: <NotificationPage onNavigate={navigate} onBack={() => goBack('mypage')} onOpenMonthlyReport={openMonthlyReport} user={session?.user} token={session?.accessToken} selectedChildId={selectedChildId} />,
     profile: <ProfilePage onNavigate={navigate} onBack={() => goBack('mypage')} user={session?.user} provider={session?.provider} token={session?.accessToken} onUserUpdate={handleUserUpdate} />,
     'child-profile': <ChildProfilePage onNavigate={navigate} onBack={() => goBack('mypage')} token={session?.accessToken} selectedChildId={selectedChildId} onSelectChild={handleSelectChild} />,
     'care-guide': <CareGuidePage onNavigate={navigate} onBack={() => goBack('home')} />,
@@ -193,6 +200,7 @@ function App() {
     ),
     result: <ResultPage onNavigate={navigate} analysisResult={analysisResult} capturedUrl={capturedUrl} />,
     report: <ReportPage onNavigate={navigate} onBack={() => goBack('home')} token={session?.accessToken} selectedChildId={selectedChildId} />,
+    'monthly-report': <MonthlyReportPage onNavigate={navigate} onBack={() => goBack('notification')} token={session?.accessToken} selectedChildId={selectedChildId} reportMonth={monthlyReportMonth} />,
   };
 
   return <main className="app-shell">{pages[page]}</main>;

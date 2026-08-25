@@ -56,8 +56,8 @@ def _clip_box(x1, y1, x2, y2, width, height):
     return x1, y1, x2, y2
 
 
-def compute_yellowing_index(preprocessed_bgr: np.ndarray, detections: list) -> float | None:
-    """치아(normal) 박스 내부 픽셀의 LAB b*채널 평균으로 황변 정도를 추정."""
+def measure_yellowing_lab_b(preprocessed_bgr: np.ndarray, detections: list) -> float | None:
+    """치아(normal) 박스의 유효 픽셀에서 개인 Baseline용 LAB b* 평균을 구한다."""
     height, width = preprocessed_bgr.shape[:2]
     lab = cv2.cvtColor(preprocessed_bgr, cv2.COLOR_BGR2LAB)
 
@@ -86,13 +86,11 @@ def compute_yellowing_index(preprocessed_bgr: np.ndarray, detections: list) -> f
     if all_b.size < MIN_VALID_PIXELS:
         return None
 
-    mean_b = float(all_b.mean())
-    severity = np.clip((mean_b - BASELINE_B) / (MAX_B - BASELINE_B), 0.0, 1.0) * 100.0
-    return round(100.0 - severity, 1)
+    return round(float(all_b.mean()), 3)
 
 
-def compute_gum_inflammation_index(preprocessed_bgr: np.ndarray, detections: list) -> float | None:
-    """치아 박스 바로 아래 띠 영역을 잇몸 후보로 보고, HSV로 걸러낸 뒤 LAB a*채널 평균으로 붉은기를 추정."""
+def measure_gum_lab_a(preprocessed_bgr: np.ndarray, detections: list) -> float | None:
+    """HSV로 선별한 잇몸 후보 픽셀에서 개인 Baseline용 LAB a* 평균을 구한다."""
     height, width = preprocessed_bgr.shape[:2]
     hsv = cv2.cvtColor(preprocessed_bgr, cv2.COLOR_BGR2HSV)
     lab = cv2.cvtColor(preprocessed_bgr, cv2.COLOR_BGR2LAB)
@@ -125,6 +123,37 @@ def compute_gum_inflammation_index(preprocessed_bgr: np.ndarray, detections: lis
     if all_a.size < MIN_VALID_PIXELS:
         return None
 
-    mean_a = float(all_a.mean())
-    severity = np.clip((mean_a - BASELINE_A) / (MAX_A - BASELINE_A), 0.0, 1.0) * 100.0
-    return round(100.0 - severity, 1)
+    return round(float(all_a.mean()), 3)
+
+
+def health_index_from_baseline(
+    measured_value: float | None,
+    baseline_value: float | None,
+    maximum_reference: float,
+) -> float | None:
+    """개인 기준값보다 색상축 값이 증가한 정도를 100(유지)~0(주의) 건강 점수로 바꾼다."""
+    if measured_value is None or baseline_value is None:
+        return None
+    scale = max(maximum_reference - baseline_value, 1.0)
+    severity = np.clip((measured_value - baseline_value) / scale, 0.0, 1.0) * 100.0
+    return round(100.0 - float(severity), 1)
+
+
+def compute_yellowing_index(
+    preprocessed_bgr: np.ndarray,
+    detections: list,
+    baseline_b: float = BASELINE_B,
+) -> float | None:
+    """LAB b* 평균을 지정한 기준값과 비교해 황변 건강 점수로 환산한다."""
+    measured_b = measure_yellowing_lab_b(preprocessed_bgr, detections)
+    return health_index_from_baseline(measured_b, baseline_b, MAX_B)
+
+
+def compute_gum_inflammation_index(
+    preprocessed_bgr: np.ndarray,
+    detections: list,
+    baseline_a: float = BASELINE_A,
+) -> float | None:
+    """LAB a* 평균을 지정한 기준값과 비교해 잇몸 건강 점수로 환산한다."""
+    measured_a = measure_gum_lab_a(preprocessed_bgr, detections)
+    return health_index_from_baseline(measured_a, baseline_a, MAX_A)

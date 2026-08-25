@@ -84,9 +84,12 @@ function MainPage({ onNavigate, user, token, selectedChildId, onSelectChild }) {
   const notifications = summary?.notifications || [];
   const notificationsEnabled = localStorage.getItem('notif_service') !== 'false';
   const captureReminderEnabled = localStorage.getItem('notif_capture') !== 'false';
-  const enabledNotifications = notifications.filter((notification) => (
-    notification.type === 'capture_due' ? captureReminderEnabled : notificationsEnabled
-  ));
+  const monthlyReportEnabled = localStorage.getItem('notif_monthly_report') !== 'false';
+  const enabledNotifications = notifications.filter((notification) => {
+    if (notification.type === 'capture_due') return captureReminderEnabled;
+    if (notification.type === 'monthly_report') return monthlyReportEnabled;
+    return notificationsEnabled;
+  });
   const hasUnreadNotification = hasUnreadNotifications(enabledNotifications, user, selectedChildId);
 
   const chartData = useMemo(() => ({

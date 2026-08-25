@@ -39,6 +39,10 @@ CREATE TABLE IF NOT EXISTS children (
     name TEXT NOT NULL,
     birth_date TEXT,
     reminder_weekday INTEGER,
+    yellowing_baseline_b REAL,
+    yellowing_baseline_count INTEGER NOT NULL DEFAULT 0,
+    gum_baseline_a REAL,
+    gum_baseline_count INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
 
@@ -53,6 +57,13 @@ CREATE TABLE IF NOT EXISTS analysis_records (
     score INTEGER NOT NULL,
     yellowing_index REAL,
     gum_inflammation_index REAL,
+    lab_b_mean REAL,
+    lab_a_mean REAL,
+    yellowing_baseline_b REAL,
+    gum_baseline_a REAL,
+    yellowing_delta REAL,
+    gum_inflammation_delta REAL,
+    color_baseline_source TEXT,
     detections_json TEXT NOT NULL,
     image_path TEXT
 );
@@ -98,12 +109,34 @@ def _migrate(conn):
         conn.execute("ALTER TABLE analysis_records ADD COLUMN yellowing_index REAL")
     if "gum_inflammation_index" not in record_columns:
         conn.execute("ALTER TABLE analysis_records ADD COLUMN gum_inflammation_index REAL")
+    if "lab_b_mean" not in record_columns:
+        conn.execute("ALTER TABLE analysis_records ADD COLUMN lab_b_mean REAL")
+    if "lab_a_mean" not in record_columns:
+        conn.execute("ALTER TABLE analysis_records ADD COLUMN lab_a_mean REAL")
+    if "yellowing_baseline_b" not in record_columns:
+        conn.execute("ALTER TABLE analysis_records ADD COLUMN yellowing_baseline_b REAL")
+    if "gum_baseline_a" not in record_columns:
+        conn.execute("ALTER TABLE analysis_records ADD COLUMN gum_baseline_a REAL")
+    if "yellowing_delta" not in record_columns:
+        conn.execute("ALTER TABLE analysis_records ADD COLUMN yellowing_delta REAL")
+    if "gum_inflammation_delta" not in record_columns:
+        conn.execute("ALTER TABLE analysis_records ADD COLUMN gum_inflammation_delta REAL")
+    if "color_baseline_source" not in record_columns:
+        conn.execute("ALTER TABLE analysis_records ADD COLUMN color_baseline_source TEXT")
 
     child_columns = {row["name"] for row in conn.execute("PRAGMA table_info(children)")}
     if "birth_date" not in child_columns:
         conn.execute("ALTER TABLE children ADD COLUMN birth_date TEXT")
     if "reminder_weekday" not in child_columns:
         conn.execute("ALTER TABLE children ADD COLUMN reminder_weekday INTEGER")
+    if "yellowing_baseline_b" not in child_columns:
+        conn.execute("ALTER TABLE children ADD COLUMN yellowing_baseline_b REAL")
+    if "yellowing_baseline_count" not in child_columns:
+        conn.execute("ALTER TABLE children ADD COLUMN yellowing_baseline_count INTEGER NOT NULL DEFAULT 0")
+    if "gum_baseline_a" not in child_columns:
+        conn.execute("ALTER TABLE children ADD COLUMN gum_baseline_a REAL")
+    if "gum_baseline_count" not in child_columns:
+        conn.execute("ALTER TABLE children ADD COLUMN gum_baseline_count INTEGER NOT NULL DEFAULT 0")
 
     conn.execute(
         """
