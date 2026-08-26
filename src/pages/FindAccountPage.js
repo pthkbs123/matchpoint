@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { formatPhoneNumber, isValidPhoneNumber, normalizePhoneNumber } from '../phone';
 
 const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
 
@@ -18,14 +19,17 @@ async function requestApi(path, payload) {
 }
 
 function FindIdForm() {
-  const [form, setForm] = useState({ name: '', birthplace: '' });
+  const [form, setForm] = useState({ name: '', phone: '' });
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleChange = (event) => {
     const { name, value } = event.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
+    setForm((prev) => ({
+      ...prev,
+      [name]: name === 'phone' ? formatPhoneNumber(value) : value,
+    }));
   };
 
   const handleSubmit = async (event) => {
@@ -33,14 +37,21 @@ function FindIdForm() {
     setError('');
     setResult(null);
 
-    if (!form.name.trim() || !form.birthplace.trim()) {
-      setError('이름과 태어난 지역을 모두 입력해 주세요.');
+    if (!form.name.trim() || !form.phone.trim()) {
+      setError('이름과 휴대폰 번호를 모두 입력해 주세요.');
+      return;
+    }
+    if (!isValidPhoneNumber(form.phone)) {
+      setError('010으로 시작하는 휴대폰 번호 11자리를 입력해 주세요.');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      const data = await requestApi('/api/auth/find-id', form);
+      const data = await requestApi('/api/auth/find-id', {
+        name: form.name,
+        phone: normalizePhoneNumber(form.phone),
+      });
       setResult(data.maskedId || data.email || '일치하는 계정을 찾았어요.');
     } catch (err) {
       setError(err.message);
@@ -57,8 +68,8 @@ function FindIdForm() {
           <input name="name" type="text" value={form.name} onChange={handleChange} placeholder="가입 시 등록한 이름" autoComplete="name" />
         </label>
         <label className="input-group">
-          <span>내가 태어난 지역은?</span>
-          <input name="birthplace" type="text" value={form.birthplace} onChange={handleChange} placeholder="예: 서울특별시" autoComplete="off" />
+          <span>휴대폰 번호</span>
+          <input name="phone" type="tel" inputMode="numeric" value={form.phone} onChange={handleChange} placeholder="010-0000-0000" autoComplete="tel" />
         </label>
         {error && <p className="social-error" role="alert">{error}</p>}
         <button type="submit" className="login-button" disabled={isSubmitting}>

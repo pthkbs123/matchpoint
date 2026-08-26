@@ -72,14 +72,14 @@ function PreCapturePage({ onNavigate, onBack, token, selectedChildId }) {
               {child?.birthDate ? (
                 <em>만 {schedule.age}세 · {schedule.feature}</em>
               ) : (
-                <em>생년월일 미등록 · 기본 매주 일요일 일정이 적용돼요.</em>
+                <em>생년월일 미등록 · 등록한 날의 요일로 주 1회 일정이 적용돼요.</em>
               )}
             </div>
 
             <section className="pre-capture-checklist">
               <div className="card-head"><h2>촬영 전 30초 체크</h2></div>
               <ol>
-                <li><b>1</b><span><strong>식사·양치 직후는 피하기</strong><small>매번 비슷한 시간과 구강 상태에서 촬영해요.</small></span></li>
+                <li><b>1</b><span><strong>식사·양치 직후는 피하기</strong><small>매번 비슷한 구강 상태에서 촬영해요.</small></span></li>
                 <li><b>2</b><span><strong>새 위생 커버와 렌즈 확인</strong><small>커버 주름이나 물방울이 렌즈를 가리지 않게 해요.</small></span></li>
                 <li><b>3</b><span><strong>같은 위치와 LED 밝기 유지</strong><small>지난 기록과 조건이 비슷할수록 비교가 정확해져요.</small></span></li>
               </ol>
