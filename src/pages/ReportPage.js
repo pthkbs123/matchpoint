@@ -10,6 +10,7 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { apiFetch } from '../api';
+import { getDefaultWeeklyScheduleLabel } from '../captureSchedule';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler);
 
@@ -245,7 +246,7 @@ function ReportPage({ onNavigate, onBack, token, selectedChildId }) {
         )}
 
         <article className="weekly-report-card">
-          <div className="card-head"><h3>관리 주기 요약</h3><span>{summary?.notification_schedule_label || '매주 일요일'}</span></div>
+          <div className="card-head"><h3>관리 주기 요약</h3><span>{summary?.notification_schedule_label || getDefaultWeeklyScheduleLabel()}</span></div>
           <div className="weekly-summary-row">
             <div><span>기록 습관</span><strong>{summary?.streak_periods ?? 0}주기 연속</strong></div>
             <div><span>전월 변화</span><strong className={monthChange < 0 ? 'down' : ''}>{monthChange == null ? '--' : `${monthChange > 0 ? '+' : ''}${monthChange}점`}</strong></div>

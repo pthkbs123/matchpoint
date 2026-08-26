@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { formatPhoneNumber, isValidPhoneNumber, normalizePhoneNumber } from '../phone';
 
 const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
 
@@ -30,8 +31,10 @@ function validate(form) {
     errors.email = '올바른 이메일 형식이 아니에요.';
   }
 
-  if (!form.birthplace.trim()) {
-    errors.birthplace = '태어난 지역을 입력해 주세요.';
+  if (!form.phone.trim()) {
+    errors.phone = '휴대폰 번호를 입력해 주세요.';
+  } else if (!isValidPhoneNumber(form.phone)) {
+    errors.phone = '010으로 시작하는 휴대폰 번호 11자리를 입력해 주세요.';
   }
 
   if (!form.password) {
@@ -48,7 +51,7 @@ function validate(form) {
 }
 
 function SignUpPage({ onNavigate }) {
-  const [form, setForm] = useState({ name: '', email: '', birthplace: '', password: '', confirmPassword: '' });
+  const [form, setForm] = useState({ name: '', email: '', phone: '', password: '', confirmPassword: '' });
   const [errors, setErrors] = useState({});
   const [serverError, setServerError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -56,7 +59,10 @@ function SignUpPage({ onNavigate }) {
 
   const handleChange = (event) => {
     const { name, value } = event.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
+    setForm((prev) => ({
+      ...prev,
+      [name]: name === 'phone' ? formatPhoneNumber(value) : value,
+    }));
   };
 
   const handleSubmit = async (event) => {
@@ -68,7 +74,12 @@ function SignUpPage({ onNavigate }) {
     setServerError('');
     setIsSubmitting(true);
     try {
-      await requestSignUp({ email: form.email, birthplace: form.birthplace, password: form.password, name: form.name });
+      await requestSignUp({
+        email: form.email,
+        phone: normalizePhoneNumber(form.phone),
+        password: form.password,
+        name: form.name,
+      });
       setIsDone(true);
     } catch (error) {
       setServerError(error.message);
@@ -118,9 +129,9 @@ function SignUpPage({ onNavigate }) {
             {errors.email && <p className="social-error" role="alert">{errors.email}</p>}
           </label>
           <label className="input-group">
-            <span>내가 태어난 지역은?</span>
-            <input name="birthplace" type="text" value={form.birthplace} onChange={handleChange} placeholder="예: 서울특별시" autoComplete="off" />
-            {errors.birthplace && <p className="social-error" role="alert">{errors.birthplace}</p>}
+            <span>휴대폰 번호</span>
+            <input name="phone" type="tel" inputMode="numeric" value={form.phone} onChange={handleChange} placeholder="010-0000-0000" autoComplete="tel" />
+            {errors.phone && <p className="social-error" role="alert">{errors.phone}</p>}
           </label>
           <label className="input-group">
             <span>비밀번호</span>
