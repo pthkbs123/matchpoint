@@ -1,9 +1,93 @@
-# 충치 탐지 모델·앱 개발 — 진행 상황 (2026-08-25 갱신)
+# 충치 탐지 모델·앱 개발 — 진행 상황 (2026-08-26 갱신)
 
 새 컴퓨터/새 Claude Code 세션에서 이 프로젝트를 이어갈 때 이 파일부터 읽으면 맥락 파악이 됩니다.
 아래 "지금 당장 이어서 할 일"이 최신이고, 그 아래 옛 기록 중 일부는 지금 시점에선 **참고용(더 이상 최선의 방법이 아님)**이니 헷갈리지 말 것 — 최신 결론은 항상 이 섹션 우선.
 
-## 2026-08-25 최신 인수인계 — 학교 PC에서 여기부터 읽기
+## 2026-08-26 Kaggle 최신 작업 복구 — 교수님 모델 vs Run A+H
+
+학교 PC에서 작업했으나 로컬 MD에 적지 못한 내용을 Kaggle 로그인 후 최신 노트북과 입력 데이터셋에서 직접 확인함.
+
+### 확인한 Kaggle 항목
+
+- 최신 노트북: `hanium yolov8 v3`
+  - https://www.kaggle.com/code/pthkbs/hanium-yolov8-v3
+  - 최신 실행본: **Version 8 of 8**, run ID `345049773`
+  - 실행 시간: **24분 1초**, GPU **T4 x2**
+- 사용자 데이터셋: `hanium_dataset` Version 12, 약 **7.66GB / 399k files**
+  - `dataset_runE`, `dataset_runF`, `dataset_runG`, `dataset_runH`
+  - `best.pt`, `best_runG.pt`, `best_runG_A.pt`, `best_runH.pt`
+- 교수님 입력: `hanuim_dataset_professor_best_pt` Version 1
+  - 실제 포함 파일은 **`professor_best.pt` 1개(40.73MB)**뿐임
+  - 원본 학습 이미지, 라벨, `data.yaml`, `results.csv`, 학습 설정은 포함되지 않음
+
+### 비교의 정확한 의미
+
+이 작업은 교수님 **학습 데이터셋과** 사용자 학습 데이터셋을 직접 비교한 것이 아니다.
+교수님이 주신 YOLOv12m `best.pt`와 사용자의 Run A+H 앙상블을 사용자의 원본
+`dataset_runG` leakage-free valid/test에서 동일한 규칙으로 외부 평가한 **모델 비교**다.
+
+- 평가 데이터: 수정하지 않은 `dataset_runG` valid 4,553장 / test 4,558장
+- 이미지 크기: `768`
+- GT 매칭 IoU: `0.50`
+- cavity 목표 Recall: `0.60`
+- threshold는 valid에서만 선택하고 고정한 뒤 test를 한 번 평가
+- normal confidence: `0.25`
+- 교수님 모델 클래스 이름은 `{0: cavity, 1: normal}`로 확인되어 단순 클래스 순서 반전은 아님
+- 이 노트북은 mAP를 계산하지 않고 threshold별 **Precision / Recall / F2 / TP / FP / FN**을 계산함
+
+### 사용자 Run A+H 결과
+
+Run A와 Run H의 cavity 예측을 합친 뒤 NMS로 중복 제거하며, normal은 Run A만 사용한다.
+
+| 구분 | threshold | Precision | Recall | F2 | TP | FP | FN |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| VALID cavity A+H | A=0.10, H=0.15 | 0.3872 | 0.6538 | 0.5747 | 7,310 | 11,568 | 3,871 |
+| TEST cavity A+H | VALID에서 고정 | 0.4065 | **0.6729** | 0.5950 | 7,514 | 10,970 | 3,652 |
+| TEST normal Run A | 0.25 | 0.7639 | **0.9442** | 0.9017 | 21,343 | 6,595 | 1,261 |
+
+참고로 단일 모델 test cavity 결과는 Run A `P=0.3329, R=0.6683`, Run H
+`P=0.3593, R=0.6428`이었다. A+H는 두 단일 모델보다 test cavity Recall과 Precision이 모두 높았다.
+
+### 교수님 YOLOv12m 결과
+
+교수님 모델은 valid에서 목표 Recall 0.60을 어느 threshold에서도 달성하지 못했다.
+코드 규칙에 따라 F2가 가장 높은 threshold `0.40`이 선택되었다.
+
+| 구분 | threshold | Precision | Recall | F2 | TP | FP | FN |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| VALID cavity 교수님 모델 | 0.40 | 0.0449 | 0.1131 | 0.0867 | 1,265 | 26,923 | 9,916 |
+| TEST cavity 교수님 모델 | VALID에서 고정 | 0.0397 | **0.1084** | 0.0805 | 1,210 | 29,303 | 9,956 |
+| TEST normal 교수님 모델 | 0.25 | 0.1919 | **0.1209** | 0.1305 | 2,732 | 11,504 | 19,872 |
+
+- 교수님 모델은 threshold `0.001`에서도 VALID cavity Recall이 약 `0.2223`에 불과했고 Precision은 약 `0.0058`이었다.
+- 추론 속도는 T4 한 장, batch 16에서 valid 약 `66.51ms/image`, test 약 `65.59ms/image`였다.
+
+### 현재 결론
+
+- **현재 프로젝트의 `dataset_runG` 기준에서는 Run A+H가 압도적으로 우수하다.** 가장 중요한 test cavity Recall은 `0.6729 vs 0.1084`다.
+- 따라서 현재 수치만 보면 교수님 모델로 프로젝트 모델을 교체하면 안 된다.
+- 다만 이 결과만으로 교수님 모델 자체가 나쁘다고 확정하면 안 된다. 교수님 모델이 학습한 원본 데이터와 `dataset_runG` 사이의 촬영 환경·박스 기준·라벨 기준 차이가 클 가능성이 높다.
+- A+H는 2개 모델 앙상블이고 교수님 모델은 1개 모델이므로 모델 용량·추론 비용까지 동일한 완전한 조건 비교는 아니다. 하지만 현재 프로젝트 데이터에 대한 배포 적합성 비교로는 의미가 있다.
+- Precision이 A+H도 `0.4065`로 낮아 오탐은 여전히 많다. Recall 목표를 달성했다는 이유만으로 최종 모델이라고 확정하지 않는다.
+
+### Kaggle 출력 파일
+
+- `runAH_ensemble_metrics.json`
+- `runAH_valid_threshold_sweep.csv`
+- `professor_vs_runAH_metrics.json`
+- `professor_valid_threshold_sweep.csv`
+
+### 다음에 반드시 할 일
+
+1. 교수님께 원본 학습 데이터의 `data.yaml`, train/valid/test 이미지·라벨, 학습 설정, `results.csv`를 받아야 실제 **데이터셋 비교**가 가능하다.
+2. 교수님 모델과 A+H가 서로 다르게 예측한 `dataset_runG` valid/test 이미지 30~50장을 박스 오버레이로 뽑아 라벨 기준·도메인 차이를 육안 확인한다.
+3. 동일 테스트셋에서 Ultralytics 표준 클래스별 mAP50/mAP50-95도 별도로 계산한다. 현재 노트북 수치는 P/R/F2만 있으므로 기존 실험 mAP와 직접 섞어 비교하지 않는다.
+4. A+H 앙상블의 실제 배포 속도와 메모리 사용량을 측정한다. 라즈베리파이 또는 서버에서 너무 무거우면 Run A 단독과 Recall/속도 절충안을 비교한다.
+5. 교수님 원본 데이터가 확보되기 전에는 두 데이터셋의 우열이나 leakage 여부를 단정하지 않는다.
+
+---
+
+## 2026-08-25 인수인계 기록
 
 ### GitHub와 PR 상태
 
