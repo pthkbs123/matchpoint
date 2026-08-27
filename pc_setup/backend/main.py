@@ -1,7 +1,7 @@
 """
 로컬 YOLOv8 추론 + 로그인/이력 백엔드 서버
 사용법:
-    1) 학습 완료 후 best.pt 를 backend/model/best.pt 위치에 복사
+    1) Run A/Run H 가중치를 backend/model/ 폴더에 배치
     2) uvicorn main:app --reload --port 8000   (이 파일이 있는 backend/ 폴더에서 실행)
     3) React 프론트(개발서버 localhost:3000)에서 http://localhost:8000 으로 요청
 """
@@ -22,7 +22,6 @@ from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from PIL import Image, ImageOps
 from pydantic import BaseModel
-from ultralytics import YOLO
 
 from account_utils import is_valid_mobile_phone, normalize_phone
 from color_baseline import REQUIRED_SAMPLES as COLOR_BASELINE_REQUIRED_SAMPLES
@@ -55,10 +54,11 @@ from auth import (
     verify_password,
 )
 from db import get_conn, init_db, now_iso
+from detection_ensemble import load_detector
 from mailer import send_reset_password_email
 from monthly_report import build_monthly_report_notification
 
-MODEL_PATH = BACKEND_DIR / "model" / "best.pt"
+MODEL_DIR = BACKEND_DIR / "model"
 CAPTURE_DIR = BACKEND_DIR / "uploads"
 _backend_google_client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
 _frontend_google_client_id = os.getenv("REACT_APP_GOOGLE_CLIENT_ID", "").strip()
@@ -91,26 +91,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-model = None
+detector = None
 
 
 @app.on_event("startup")
 def startup():
-    global model
+    global detector
     init_db()
-
-    if not MODEL_PATH.exists():
-        raise RuntimeError(
-            f"모델 파일을 찾을 수 없습니다: {MODEL_PATH}\n"
-            "train.py로 학습 후 생성된 best.pt를 backend/model/ 폴더에 넣어주세요."
-        )
-    model = YOLO(str(MODEL_PATH))
-    print(f"모델 로드 완료: {MODEL_PATH}")
+    detector = load_detector(MODEL_DIR)
+    print(f"충치 탐지 모델 로드 완료: mode={detector.mode}, models={detector.model_names}")
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "model_loaded": model is not None}
+    return {
+        "status": "ok",
+        "model_loaded": detector is not None,
+        "inference_mode": detector.mode if detector else None,
+        "models": detector.model_names if detector else [],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -625,7 +624,7 @@ async def analyze(
     child_id: int | None = Form(None),
     user=Depends(optional_user),
 ):
-    if model is None:
+    if detector is None:
         raise HTTPException(status_code=503, detail="모델이 아직 로드되지 않았습니다.")
 
     if not file.content_type or not file.content_type.startswith("image/"):
@@ -637,21 +636,7 @@ async def analyze(
     except Exception:
         raise HTTPException(status_code=400, detail="이미지를 읽을 수 없습니다.")
 
-    results = model.predict(image, conf=0.25, verbose=False)
-    r = results[0]
-
-    detections = []
-    class_names = r.names  # {0: 'cavity', 1: 'normal'}
-
-    for box in r.boxes:
-        cls_id = int(box.cls[0])
-        conf = float(box.conf[0])
-        x1, y1, x2, y2 = [float(v) for v in box.xyxy[0]]
-        detections.append({
-            "class": class_names[cls_id],
-            "confidence": round(conf, 4),
-            "box": {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
-        })
+    detections = detector.predict(image)
 
     cavity_count = sum(1 for d in detections if d["class"] == "cavity")
     normal_count = sum(1 for d in detections if d["class"] == "normal")

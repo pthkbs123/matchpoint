@@ -8,7 +8,7 @@ pc_setup/
 ├── train.py                     # 모델 학습 스크립트
 └── backend/
     ├── main.py                  # FastAPI 추론 서버
-    └── model/                   # best.pt 넣을 위치 (학습 후)
+    └── model/                   # 배포용 Run A/Run H 가중치 위치
 ```
 
 ## 1단계. 파이썬 환경 준비
@@ -35,12 +35,30 @@ python train.py
 - `runs/detect/cavity_train/` 폴더에 성능 그래프, confusion matrix 등도 같이 생성되니 확인해보세요.
 
 ## 4단계. 학습된 모델을 백엔드로 이동
+기존 단일 모델을 `legacy` 모드로 사용할 때:
+
 ```bash
 # Windows
 copy runs\detect\cavity_train\weights\best.pt backend\model\best.pt
 # Mac/Linux
 cp runs/detect/cavity_train/weights/best.pt backend/model/best.pt
 ```
+
+현재 기본 배포 모드는 cavity Recall을 우선한 Run A+Run H 앙상블입니다.
+
+```text
+backend/model/best_runG_A.pt
+backend/model/best_runH.pt
+```
+
+환경변수 `CAVITY_INFERENCE_MODE`로 실행 모드를 바꿀 수 있습니다.
+
+- `ensemble`(기본): Run A cavity conf 0.10 + Run H cavity conf 0.15, IoU 0.50 NMS, normal은 Run A conf 0.25
+- `runH`: Run H 단일 모델
+- `legacy`: 기존 `best.pt` 단일 모델(conf 0.25)
+
+필요하면 `backend/.env`에서 각 임계값(`CAVITY_CONF_RUN_A`,
+`CAVITY_CONF_RUN_H`, `NORMAL_CONF`, `CAVITY_ENSEMBLE_NMS_IOU`)을 조정할 수 있습니다.
 
 ## 5단계. 추론 서버 실행
 ```bash
