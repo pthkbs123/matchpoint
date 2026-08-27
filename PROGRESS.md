@@ -78,6 +78,26 @@
 - 절대 치은염 분류가 필요하면 MIO 전체 또는 MGI 단계/ROI 라벨 1,096장이 있는 Mendeley 자료로 별도 분류·세그멘테이션 모델을 학습해야 한다.
 - 세부 보고서와 CSV/JSON은 로컬 `public_validation` 폴더에 생성함.
 
+### 치과의사 박스 라벨로 충치 모델 추가 검증
+
+- [Annotated intraoral image dataset for dental caries detection](https://zenodo.org/records/14827784)(DOI `10.5281/zenodo.14827784`)을 확인함.
+- 두 치과의사가 충치 박스를 표시하고 불일치는 제3의 치과의사가 조정했으며, 논문에 보고된 평가자 간 Cohen's Kappa는 `0.89`임.
+- 이 자료는 과거 `Benchmarking Dataset`으로 이미 runG에 포함된 출처였으므로 Zenodo ZIP 임의 50장은 train 중복 가능성이 있어 최종 판단에서 폐기함.
+- 대신 원본 그룹 누수가 없는 runG `test`의 `ds_zenodo_*` 269장, cavity 정답 박스 820개만 IoU 0.5에서 다시 평가함.
+
+| 모델 | Precision | Recall | F2 | TP | FP | FN | 사진 단위 검출률 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 앱 현재 모델(conf 0.25) | 0.4773 | 0.7707 | 0.6864 | 632 | 692 | 188 | 0.8959 |
+| Run A(conf 0.10) | 0.4669 | 0.9720 | 0.7991 | 797 | 910 | 23 | 0.9926 |
+| **Run H(conf 0.15)** | **0.7200** | 0.9500 | **0.8929** | 779 | **303** | 41 | **1.0000** |
+| **Run A+H** | 0.4894 | **0.9866** | 0.8200 | **809** | 844 | **11** | **1.0000** |
+
+- 최우선인 cavity Recall은 A+H가 가장 높고, Run H는 단일 모델 중 Precision/Recall/F2 균형이 가장 좋음.
+- A+H는 Run H보다 FN을 41→11로 줄이는 대신 FP가 303→844로 증가함.
+- 이 출처는 runG 학습 도메인에 포함되므로 전체 runG test보다 쉬움. 전체 runG test A+H Recall `0.6729`를 대체하는 숫자가 아니라 **전문 라벨 출처별 세부 결과**로만 사용함.
+- 이 출처는 충치가 있는 사진 위주라 완전 정상 사진을 포함한 실제 배포 Precision으로 해석하지 않음.
+- 세부 CSV/JSON 및 보고서는 로컬 `public_validation` 폴더에 생성함.
+
 ---
 
 ## 2026-08-26 Kaggle 최신 작업 복구 — 교수님 모델 vs Run A+H
