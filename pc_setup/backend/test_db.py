@@ -29,6 +29,8 @@ class DatabaseSchemaTests(unittest.TestCase):
                     "yellowing_baseline_count",
                     "gum_baseline_a",
                     "gum_baseline_count",
+                    "color_baseline_generation",
+                    "color_baseline_reset_at",
                 }.issubset(child_columns))
                 self.assertTrue({
                     "lab_b_mean",

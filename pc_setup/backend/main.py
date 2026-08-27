@@ -31,6 +31,11 @@ from color_analysis import (
     BASELINE_B,
     MAX_A,
     MAX_B,
+    PREPROCESS_MODES,
+    PREPROCESS_ORIGINAL,
+    PREPROCESS_WB_CLAHE,
+    compute_gum_inflammation_details,
+    compute_yellowing_details,
     health_index_from_baseline,
     measure_gum_lab_a,
     measure_yellowing_lab_b,
@@ -586,6 +591,163 @@ def _score_from_detections(cavity_count: int) -> int:
     return max(0, 100 - cavity_count * 15)
 
 
+def _detections_from_result(result) -> list[dict]:
+    detections = []
+    class_names = result.names
+    for box in result.boxes:
+        cls_id = int(box.cls[0])
+        conf = float(box.conf[0])
+        x1, y1, x2, y2 = [float(value) for value in box.xyxy[0]]
+        detections.append({
+            "class": class_names[cls_id],
+            "confidence": round(conf, 4),
+            "box": {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
+        })
+    return detections
+
+
+def _predict_detections(image: Image.Image) -> list[dict]:
+    return _detections_from_result(model.predict(image, conf=0.25, verbose=False)[0])
+
+
+def _color_comparison_metrics(image_bgr: np.ndarray, detections: list, mode: str) -> dict:
+    preprocessed = preprocess_bgr(image_bgr, mode=mode)
+    yellowing = compute_yellowing_details(preprocessed, detections)
+    gum = compute_gum_inflammation_details(preprocessed, detections)
+    return {
+        "mode": mode,
+        "yellowing_index": yellowing["score"],
+        "gum_inflammation_index": gum["score"],
+        "raw": {"yellowing": yellowing, "gum_inflammation": gum},
+    }
+
+
+def _child_baseline_payload(child_row) -> dict:
+    if child_row is None:
+        return {
+            "available": False,
+            "required_samples": COLOR_BASELINE_REQUIRED_SAMPLES,
+            "ready": False,
+            "generation": 0,
+            "reset_at": None,
+            "yellowing": {"sample_count": 0, "ready": False},
+            "gum_inflammation": {"sample_count": 0, "ready": False},
+        }
+    yellowing_count = int(child_row["yellowing_baseline_count"] or 0)
+    gum_count = int(child_row["gum_baseline_count"] or 0)
+    return {
+        "available": True,
+        "required_samples": COLOR_BASELINE_REQUIRED_SAMPLES,
+        "ready": (
+            yellowing_count >= COLOR_BASELINE_REQUIRED_SAMPLES
+            and gum_count >= COLOR_BASELINE_REQUIRED_SAMPLES
+        ),
+        "generation": int(child_row["color_baseline_generation"] or 1),
+        "reset_at": child_row["color_baseline_reset_at"],
+        "yellowing": {
+            "sample_count": yellowing_count,
+            "ready": yellowing_count >= COLOR_BASELINE_REQUIRED_SAMPLES,
+            "value": child_row["yellowing_baseline_b"],
+        },
+        "gum_inflammation": {
+            "sample_count": gum_count,
+            "ready": gum_count >= COLOR_BASELINE_REQUIRED_SAMPLES,
+            "value": child_row["gum_baseline_a"],
+        },
+    }
+
+
+class BaselineResetRequest(BaseModel):
+    child_id: int | None = None
+
+
+@app.get("/api/color-baseline/status")
+def color_baseline_status(
+    child_id: int | None = Query(None),
+    user=Depends(require_user),
+):
+    if child_id is None:
+        return {"baseline": _child_baseline_payload(None)}
+    with get_conn() as conn:
+        child = conn.execute(
+            "SELECT * FROM children WHERE id = ? AND user_id = ?",
+            (child_id, user["id"]),
+        ).fetchone()
+        if child is None:
+            raise HTTPException(status_code=404, detail="자녀 정보를 찾을 수 없습니다.")
+        return {"baseline": _child_baseline_payload(child)}
+
+
+@app.post("/api/color-baseline/reset")
+def reset_color_baseline(payload: BaselineResetRequest, user=Depends(require_user)):
+    """기존 촬영 이력은 유지하고 선택한 자녀의 색상 기준만 새로 수집한다."""
+    if payload.child_id is None:
+        raise HTTPException(status_code=400, detail="기준을 재설정할 자녀를 먼저 선택해주세요.")
+    reset_at = now_iso()
+    with get_conn() as conn:
+        child = conn.execute(
+            "SELECT * FROM children WHERE id = ? AND user_id = ?",
+            (payload.child_id, user["id"]),
+        ).fetchone()
+        if child is None:
+            raise HTTPException(status_code=404, detail="자녀 정보를 찾을 수 없습니다.")
+        conn.execute(
+            """
+            UPDATE children
+            SET yellowing_baseline_b = NULL, yellowing_baseline_count = 0,
+                gum_baseline_a = NULL, gum_baseline_count = 0,
+                color_baseline_generation = color_baseline_generation + 1,
+                color_baseline_reset_at = ?
+            WHERE id = ?
+            """,
+            (reset_at, payload.child_id),
+        )
+        child = conn.execute("SELECT * FROM children WHERE id = ?", (payload.child_id,)).fetchone()
+    return {
+        "baseline": _child_baseline_payload(child),
+        "message": "기존 촬영 기록은 유지하고 개인 기준 수집을 새로 시작합니다.",
+    }
+
+
+@app.post("/api/color-analysis/compare")
+async def compare_color_preprocessing(
+    file: UploadFile = File(...),
+    _user=Depends(require_user),
+):
+    """저장 없이 동일 이미지의 세 전처리 조건을 비교하는 개발/보정용 API."""
+    if model is None:
+        raise HTTPException(status_code=503, detail="모델이 아직 로드되지 않았습니다.")
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="이미지 파일만 업로드 가능합니다.")
+    contents = await file.read()
+    try:
+        image = ImageOps.exif_transpose(Image.open(io.BytesIO(contents))).convert("RGB")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="이미지를 읽을 수 없습니다.") from exc
+
+    original_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    comparisons = []
+    for mode in PREPROCESS_MODES:
+        processed_bgr = preprocess_bgr(original_bgr, mode=mode)
+        processed_image = Image.fromarray(cv2.cvtColor(processed_bgr, cv2.COLOR_BGR2RGB))
+        detections = _predict_detections(processed_image)
+        metrics = _color_comparison_metrics(original_bgr, detections, mode)
+        cavity = [item for item in detections if item["class"] == "cavity"]
+        normal = [item for item in detections if item["class"] == "normal"]
+        comparisons.append({
+            **metrics,
+            "cavity_count": len(cavity),
+            "normal_count": len(normal),
+            "cavity_confidences": [item["confidence"] for item in cavity],
+            "normal_confidences": [item["confidence"] for item in normal],
+        })
+    return {
+        "image_size": {"width": image.width, "height": image.height},
+        "comparisons": comparisons,
+        "notice": "개발 보정용 비교 결과이며 의료 진단값이 아닙니다.",
+    }
+
+
 def _update_child_color_baseline(conn, child_row, lab_b_mean, lab_a_mean) -> dict:
     yellowing_was_ready = (child_row["yellowing_baseline_count"] or 0) >= COLOR_BASELINE_REQUIRED_SAMPLES
     gum_was_ready = (child_row["gum_baseline_count"] or 0) >= COLOR_BASELINE_REQUIRED_SAMPLES
@@ -646,9 +808,10 @@ async def analyze(
     lab_a_mean = None
     try:
         image_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-        preprocessed = preprocess_bgr(image_bgr)
-        lab_b_mean = measure_yellowing_lab_b(preprocessed, detections)
-        lab_a_mean = measure_gum_lab_a(preprocessed, detections)
+        yellowing_bgr = preprocess_bgr(image_bgr, mode=PREPROCESS_WB_CLAHE)
+        gum_bgr = preprocess_bgr(image_bgr, mode=PREPROCESS_ORIGINAL)
+        lab_b_mean = measure_yellowing_lab_b(yellowing_bgr, detections)
+        lab_a_mean = measure_gum_lab_a(gum_bgr, detections)
     except Exception as exc:
         print(f"색상 분석 실패(무시하고 진행): {exc}")
 
