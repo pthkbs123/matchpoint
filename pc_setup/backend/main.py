@@ -1,7 +1,7 @@
 """
 로컬 YOLOv8 추론 + 로그인/이력 백엔드 서버
 사용법:
-    1) 학습 완료 후 best.pt 를 backend/model/best.pt 위치에 복사
+    1) Run A/Run H 가중치를 backend/model/ 폴더에 배치
     2) uvicorn main:app --reload --port 8000   (이 파일이 있는 backend/ 폴더에서 실행)
     3) React 프론트(개발서버 localhost:3000)에서 http://localhost:8000 으로 요청
 """
@@ -22,13 +22,8 @@ from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from PIL import Image, ImageOps
 from pydantic import BaseModel
-from ultralytics import YOLO
 
-BACKEND_DIR = Path(__file__).parent
-PROJECT_ROOT = BACKEND_DIR.parent.parent
-load_dotenv(PROJECT_ROOT / ".env")
-load_dotenv(BACKEND_DIR / ".env", override=True)
-
+from account_utils import is_valid_mobile_phone, normalize_phone
 from color_baseline import REQUIRED_SAMPLES as COLOR_BASELINE_REQUIRED_SAMPLES
 from color_baseline import advance_running_baseline
 from color_analysis import (
@@ -47,6 +42,11 @@ from color_analysis import (
     preprocess_bgr,
 )
 
+BACKEND_DIR = Path(__file__).parent
+PROJECT_ROOT = BACKEND_DIR.parent.parent
+load_dotenv(PROJECT_ROOT / ".env")
+load_dotenv(BACKEND_DIR / ".env", override=True)
+
 from auth import (
     create_password_reset_token,
     create_session,
@@ -59,10 +59,11 @@ from auth import (
     verify_password,
 )
 from db import get_conn, init_db, now_iso
+from detection_ensemble import load_detector
 from mailer import send_reset_password_email
 from monthly_report import build_monthly_report_notification
 
-MODEL_PATH = BACKEND_DIR / "model" / "best.pt"
+MODEL_DIR = BACKEND_DIR / "model"
 CAPTURE_DIR = BACKEND_DIR / "uploads"
 _backend_google_client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
 _frontend_google_client_id = os.getenv("REACT_APP_GOOGLE_CLIENT_ID", "").strip()
@@ -95,26 +96,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-model = None
+detector = None
 
 
 @app.on_event("startup")
 def startup():
-    global model
+    global detector
     init_db()
-
-    if not MODEL_PATH.exists():
-        raise RuntimeError(
-            f"모델 파일을 찾을 수 없습니다: {MODEL_PATH}\n"
-            "train.py로 학습 후 생성된 best.pt를 backend/model/ 폴더에 넣어주세요."
-        )
-    model = YOLO(str(MODEL_PATH))
-    print(f"모델 로드 완료: {MODEL_PATH}")
+    detector = load_detector(MODEL_DIR)
+    print(f"충치 탐지 모델 로드 완료: mode={detector.mode}, models={detector.model_names}")
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "model_loaded": model is not None}
+    return {
+        "status": "ok",
+        "model_loaded": detector is not None,
+        "inference_mode": detector.mode if detector else None,
+        "models": detector.model_names if detector else [],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ class EmailAuthRequest(BaseModel):
     email: str
     password: str
     name: str | None = None
-    birthplace: str | None = None
+    phone: str | None = None
 
 
 class KakaoAuthRequest(BaseModel):
@@ -140,6 +140,7 @@ def _user_json(user_row, email_override: str | None = None) -> dict:
     return {
         "name": user_row["name"],
         "email": email_override or user_row["email"],
+        "phone": user_row["phone"],
         "picture": user_row["picture"] or "/profile-avatar.svg",
         "memberSince": user_row["created_at"],
     }
@@ -213,8 +214,11 @@ def _social_login_response(
 @app.post("/api/auth/email")
 def auth_email(payload: EmailAuthRequest):
     email = payload.email.strip().lower()
+    phone = normalize_phone(payload.phone)
     if not email or not payload.password:
         raise HTTPException(status_code=400, detail="이메일과 비밀번호를 입력해주세요.")
+    if payload.phone is not None and not is_valid_mobile_phone(phone):
+        raise HTTPException(status_code=400, detail="올바른 휴대폰 번호를 입력해주세요.")
 
     with get_conn() as conn:
         row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
@@ -223,8 +227,8 @@ def auth_email(payload: EmailAuthRequest):
             # 계정이 없으면 최초 로그인 시점에 자동으로 만들어준다 (데모용 간이 가입)
             name = payload.name or email.split("@")[0]
             cur = conn.execute(
-                "INSERT INTO users (email, password_hash, name, birthplace, picture, provider, created_at) VALUES (?, ?, ?, ?, ?, 'email', ?)",
-                (email, hash_password(payload.password), name, payload.birthplace, None, now_iso()),
+                "INSERT INTO users (email, password_hash, name, phone, picture, provider, created_at) VALUES (?, ?, ?, ?, ?, 'email', ?)",
+                (email, hash_password(payload.password), name, phone or None, None, now_iso()),
             )
             row = conn.execute("SELECT * FROM users WHERE id = ?", (cur.lastrowid,)).fetchone()
         elif not row["password_hash"] or not verify_password(payload.password, row["password_hash"]):
@@ -340,19 +344,19 @@ def auth_google(payload: GoogleAuthRequest):
 
 class FindIdRequest(BaseModel):
     name: str
-    birthplace: str
+    phone: str
 
 
 @app.post("/api/auth/find-id")
 def find_id(payload: FindIdRequest):
     name = payload.name.strip()
-    birthplace = payload.birthplace.strip()
-    if not name or not birthplace:
-        raise HTTPException(status_code=400, detail="이름과 태어난 지역을 입력해주세요.")
+    phone = normalize_phone(payload.phone)
+    if not name or not is_valid_mobile_phone(phone):
+        raise HTTPException(status_code=400, detail="이름과 올바른 휴대폰 번호를 입력해주세요.")
 
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT * FROM users WHERE name = ? AND birthplace = ?", (name, birthplace)
+            "SELECT * FROM users WHERE name = ? AND phone = ?", (name, phone)
         ).fetchone()
 
     if row is None:
@@ -429,16 +433,23 @@ def _child_json(row) -> dict:
 
 class ProfileUpdateRequest(BaseModel):
     name: str
+    phone: str | None = None
 
 
 @app.put("/api/profile")
 def update_profile(payload: ProfileUpdateRequest, user=Depends(require_user)):
     name = payload.name.strip()
+    phone = normalize_phone(payload.phone)
     if not name:
         raise HTTPException(status_code=400, detail="이름을 입력해주세요.")
+    if payload.phone is not None and phone and not is_valid_mobile_phone(phone):
+        raise HTTPException(status_code=400, detail="올바른 휴대폰 번호를 입력해주세요.")
 
     with get_conn() as conn:
-        conn.execute("UPDATE users SET name = ? WHERE id = ?", (name, user["id"]))
+        conn.execute(
+            "UPDATE users SET name = ?, phone = ? WHERE id = ?",
+            (name, phone or None, user["id"]),
+        )
         row = conn.execute("SELECT * FROM users WHERE id = ?", (user["id"],)).fetchone()
 
     return {"user": _user_json(row)}
@@ -448,7 +459,7 @@ def update_profile(payload: ProfileUpdateRequest, user=Depends(require_user)):
 def list_children(user=Depends(require_user)):
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM children WHERE user_id = ? ORDER BY created_at ASC",
+            "SELECT * FROM children WHERE user_id = ? ORDER BY created_at ASC, id ASC",
             (user["id"],),
         ).fetchall()
     return {"children": [_child_json(row) for row in rows]}
@@ -465,10 +476,14 @@ def create_child(payload: ChildCreateRequest, user=Depends(require_user)):
     if not name:
         raise HTTPException(status_code=400, detail="자녀 이름을 입력해주세요.")
 
+    default_weekday = datetime.now(timezone(timedelta(hours=9))).weekday()
     with get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO children (user_id, name, birth_date, created_at) VALUES (?, ?, ?, ?)",
-            (user["id"], name, payload.birthDate or None, now_iso()),
+            """
+            INSERT INTO children (user_id, name, birth_date, reminder_weekday, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (user["id"], name, payload.birthDate or None, default_weekday, now_iso()),
         )
         row = conn.execute("SELECT * FROM children WHERE id = ?", (cur.lastrowid,)).fetchone()
 
@@ -525,6 +540,47 @@ def update_child_schedule(child_id: int, payload: ChildScheduleRequest, user=Dep
         row = conn.execute("SELECT * FROM children WHERE id = ?", (child_id,)).fetchone()
 
     return _child_json(row)
+
+
+@app.delete("/api/children/{child_id}")
+def delete_child(child_id: int, user=Depends(require_user)):
+    image_names = []
+    with get_conn() as conn:
+        children = conn.execute(
+            "SELECT id FROM children WHERE user_id = ? ORDER BY created_at ASC, id ASC",
+            (user["id"],),
+        ).fetchall()
+        child_ids = [row["id"] for row in children]
+        if child_id not in child_ids:
+            raise HTTPException(status_code=404, detail="자녀 정보를 찾을 수 없습니다.")
+        if child_ids[0] == child_id:
+            raise HTTPException(status_code=400, detail="첫 번째 자녀 프로필은 삭제할 수 없습니다.")
+
+        image_rows = conn.execute(
+            """
+            SELECT image_path FROM analysis_records
+            WHERE user_id = ? AND child_id = ? AND image_path IS NOT NULL
+            """,
+            (user["id"], child_id),
+        ).fetchall()
+        image_names = [Path(row["image_path"]).name for row in image_rows]
+        conn.execute(
+            "DELETE FROM analysis_records WHERE user_id = ? AND child_id = ?",
+            (user["id"], child_id),
+        )
+        conn.execute(
+            "DELETE FROM children WHERE user_id = ? AND id = ?",
+            (user["id"], child_id),
+        )
+
+    for image_name in image_names:
+        try:
+            (CAPTURE_DIR / image_name).unlink(missing_ok=True)
+        except OSError as exc:
+            print(f"삭제된 자녀의 촬영 이미지 정리 실패: {exc}")
+
+    remaining_child_id = next((item_id for item_id in child_ids if item_id != child_id), None)
+    return {"deleted": True, "selectedChildId": remaining_child_id}
 
 
 # ---------------------------------------------------------------------------
@@ -730,7 +786,7 @@ async def analyze(
     child_id: int | None = Form(None),
     user=Depends(optional_user),
 ):
-    if model is None:
+    if detector is None:
         raise HTTPException(status_code=503, detail="모델이 아직 로드되지 않았습니다.")
 
     if not file.content_type or not file.content_type.startswith("image/"):
@@ -742,21 +798,7 @@ async def analyze(
     except Exception:
         raise HTTPException(status_code=400, detail="이미지를 읽을 수 없습니다.")
 
-    results = model.predict(image, conf=0.25, verbose=False)
-    r = results[0]
-
-    detections = []
-    class_names = r.names  # {0: 'cavity', 1: 'normal'}
-
-    for box in r.boxes:
-        cls_id = int(box.cls[0])
-        conf = float(box.conf[0])
-        x1, y1, x2, y2 = [float(v) for v in box.xyxy[0]]
-        detections.append({
-            "class": class_names[cls_id],
-            "confidence": round(conf, 4),
-            "box": {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
-        })
+    detections = detector.predict(image)
 
     cavity_count = sum(1 for d in detections if d["class"] == "cavity")
     normal_count = sum(1 for d in detections if d["class"] == "normal")
@@ -1056,7 +1098,11 @@ def _recommended_capture_schedule(
 ) -> tuple[int, str, str, str]:
     age = _age_years(birth_date, today)
     if age is None or age <= 6:
-        weekday = reminder_weekday if reminder_weekday is not None and 0 <= reminder_weekday <= 6 else 6
+        weekday = (
+            reminder_weekday
+            if reminder_weekday is not None and 0 <= reminder_weekday <= 6
+            else today.weekday()
+        )
         weekday_labels = ("월", "화", "수", "목", "금", "토", "일")
         return 7, "주 1회", f"매주 {weekday_labels[weekday]}요일", f"weekly_{weekday}"
     if age <= 12:
@@ -1183,6 +1229,7 @@ def history_image(record_id: int, user=Depends(require_user)):
 @app.get("/api/report/summary")
 def report_summary(child_id: int | None = Query(None), user=Depends(require_user)):
     selected_child = None
+    korea_today = datetime.now(timezone(timedelta(hours=9))).date()
     with get_conn() as conn:
         if child_id is None:
             rows = conn.execute(
@@ -1199,6 +1246,15 @@ def report_summary(child_id: int | None = Query(None), user=Depends(require_user
             ).fetchone()
             if child is None:
                 raise HTTPException(status_code=404, detail="자녀 정보를 찾을 수 없습니다.")
+            if child["reminder_weekday"] is None:
+                conn.execute(
+                    "UPDATE children SET reminder_weekday = ? WHERE id = ?",
+                    (korea_today.weekday(), child_id),
+                )
+                selected_child = dict(child)
+                selected_child["reminder_weekday"] = korea_today.weekday()
+            else:
+                selected_child = child
             rows = conn.execute(
                 """
                 SELECT created_at, score, yellowing_index, gum_inflammation_index, color_baseline_source
@@ -1207,9 +1263,7 @@ def report_summary(child_id: int | None = Query(None), user=Depends(require_user
                 """,
                 (user["id"], child_id),
             ).fetchall()
-            selected_child = child
 
-    korea_today = datetime.now(timezone(timedelta(hours=9))).date()
     personal_color_rows = [row for row in rows if row["color_baseline_source"] == "personal"]
     metrics = {
         "overall": _build_metric_summary(rows, "overall", "score", "종합 점수", "점", korea_today),

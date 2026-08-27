@@ -12,6 +12,7 @@ function ChildProfilePage({ onNavigate, onBack, token, selectedChildId, onSelect
   const [isSaving, setIsSaving] = useState(false);
   const [scheduleEditingId, setScheduleEditingId] = useState(null);
   const [isScheduleSaving, setIsScheduleSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
   const [characterFeedbackEnabled, setCharacterFeedbackState] = useState(isCharacterFeedbackEnabled);
   const [error, setError] = useState('');
   const [profileNotice, setProfileNotice] = useState('');
@@ -106,6 +107,35 @@ function ChildProfilePage({ onNavigate, onBack, token, selectedChildId, onSelect
     );
   };
 
+  const handleDelete = async (child, index) => {
+    if (index === 0) return;
+    const confirmed = window.confirm(
+      `${child.name} 프로필과 촬영 기록을 삭제할까요?\n삭제한 데이터는 복구할 수 없습니다.`
+    );
+    if (!confirmed) return;
+
+    setDeletingId(child.id);
+    setError('');
+    try {
+      const result = await apiFetch(`/api/children/${child.id}`, {
+        token,
+        method: 'DELETE',
+      });
+      const remainingChildren = children.filter((item) => item.id !== child.id);
+      setChildren(remainingChildren);
+      if (editingId === child.id) resetForm();
+      if (scheduleEditingId === child.id) setScheduleEditingId(null);
+      if (selectedChildId === child.id) {
+        onSelectChild(result.selectedChildId ?? remainingChildren[0]?.id ?? null);
+      }
+      setProfileNotice(`${child.name} 님의 자녀 프로필을 삭제했어요.`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   return (
     <section className="phone">
       <div className="mypage-content">
@@ -142,7 +172,7 @@ function ChildProfilePage({ onNavigate, onBack, token, selectedChildId, onSelect
           <p className="subtext page-state">자녀 정보를 불러오는 중이에요...</p>
         ) : (
           <div className="child-profile-list">
-            {children.map((child) => {
+            {children.map((child, index) => {
               const schedule = getCaptureSchedule(child.birthDate, child.reminderWeekday);
               const canChooseWeekday = schedule.key === 'preschool';
               const isEditingSchedule = scheduleEditingId === child.id;
@@ -156,7 +186,20 @@ function ChildProfilePage({ onNavigate, onBack, token, selectedChildId, onSelect
                     </span>
                     <b>{child.id === selectedChildId ? '관리 중' : '선택'}</b>
                   </button>
-                  <button type="button" className="child-edit-button" onClick={() => startEdit(child)}>수정</button>
+                  <div className="child-profile-actions">
+                    <button type="button" className="child-edit-button" onClick={() => startEdit(child)}>수정</button>
+                    {index > 0 && (
+                      <button
+                        type="button"
+                        className="child-delete-button"
+                        disabled={deletingId === child.id}
+                        aria-label={`${child.name} 프로필 삭제`}
+                        onClick={() => handleDelete(child, index)}
+                      >
+                        {deletingId === child.id ? '삭제 중' : '삭제'}
+                      </button>
+                    )}
+                  </div>
 
                   {canChooseWeekday ? (
                     <button

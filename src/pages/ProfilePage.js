@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
+import { apiFetch } from '../api';
+import { formatPhoneNumber, isValidPhoneNumber, normalizePhoneNumber } from '../phone';
 
-function ProfilePage({ onNavigate, onBack, user, provider }) {
+function ProfilePage({ onNavigate, onBack, user, provider, token, onUserUpdate }) {
   const [userName, setUserName] = useState(() =>
     localStorage.getItem('user_name') || user?.name || '사용자'
   );
@@ -17,8 +19,10 @@ function ProfilePage({ onNavigate, onBack, user, provider }) {
   const profileImage = user?.picture || '/profile-avatar.svg';
 
   const [userPhone, setUserPhone] = useState(() =>
-    localStorage.getItem('user_phone') || '010-1234-5678'
+    formatPhoneNumber(user?.phone || localStorage.getItem('user_phone') || '')
   );
+  const [profileError, setProfileError] = useState('');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -38,12 +42,40 @@ function ProfilePage({ onNavigate, onBack, user, provider }) {
     }
   };
 
-  const handleSaveProfile = () => {
-    localStorage.setItem('user_name', userName);
-    localStorage.setItem('user_phone', userPhone);
-    alert('프로필 정보가 성공적으로 저장되었습니다.');
-    if (onBack) onBack();
-    else if (onNavigate) onNavigate('mypage');
+  const handleSaveProfile = async () => {
+    setProfileError('');
+    if (!userName.trim()) {
+      setProfileError('이름을 입력해 주세요.');
+      return;
+    }
+    if (userPhone && !isValidPhoneNumber(userPhone)) {
+      setProfileError('010으로 시작하는 휴대폰 번호 11자리를 입력해 주세요.');
+      return;
+    }
+
+    setIsSavingProfile(true);
+    try {
+      const data = await apiFetch('/api/profile', {
+        token,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: userName.trim(),
+          phone: normalizePhoneNumber(userPhone) || null,
+        }),
+      });
+      localStorage.setItem('user_name', userName.trim());
+      if (userPhone) localStorage.setItem('user_phone', formatPhoneNumber(userPhone));
+      else localStorage.removeItem('user_phone');
+      onUserUpdate?.(data.user);
+      alert('프로필 정보가 성공적으로 저장되었습니다.');
+      if (onBack) onBack();
+      else if (onNavigate) onNavigate('mypage');
+    } catch (error) {
+      setProfileError(error.message);
+    } finally {
+      setIsSavingProfile(false);
+    }
   };
 
   const handleChangePassword = (event) => {
@@ -152,8 +184,10 @@ function ProfilePage({ onNavigate, onBack, user, provider }) {
               <input
                 type="tel"
                 value={userPhone}
-                onChange={(event) => setUserPhone(event.target.value)}
+                onChange={(event) => setUserPhone(formatPhoneNumber(event.target.value))}
                 placeholder="010-0000-0000"
+                inputMode="numeric"
+                autoComplete="tel"
                 style={{
                   padding: '12px',
                   borderRadius: '8px',
@@ -226,9 +260,12 @@ function ProfilePage({ onNavigate, onBack, user, provider }) {
               )}
             </div>
 
+            {profileError && <p className="social-error" role="alert">{profileError}</p>}
+
             <button
               type="button"
               onClick={handleSaveProfile}
+              disabled={isSavingProfile}
               style={{
                 marginTop: '10px',
                 padding: '14px',
@@ -241,7 +278,7 @@ function ProfilePage({ onNavigate, onBack, user, provider }) {
                 cursor: 'pointer'
               }}
             >
-              저장하기
+              {isSavingProfile ? '저장 중...' : '저장하기'}
             </button>
 
             <div style={{ textAlign: 'center', marginTop: '24px' }}>

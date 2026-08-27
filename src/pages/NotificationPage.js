@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../api';
+import { getDefaultWeeklyScheduleLabel } from '../captureSchedule';
 import { markNotificationsRead } from '../notificationStorage';
 
 function readBoolean(key, fallback) {
@@ -28,7 +29,7 @@ function NotificationPage({ onNavigate, onBack, onOpenMonthlyReport, user, token
   const [captureReminderEnabled, setCaptureReminderEnabled] = useState(() => readBoolean('notif_capture', true));
   const [monthlyReportEnabled, setMonthlyReportEnabled] = useState(() => readBoolean('notif_monthly_report', true));
   const [notifications, setNotifications] = useState([]);
-  const [scheduleLabel, setScheduleLabel] = useState('매주 일요일');
+  const [scheduleLabel, setScheduleLabel] = useState(() => getDefaultWeeklyScheduleLabel());
   const [isLoadingNotifications, setIsLoadingNotifications] = useState(true);
 
   useEffect(() => { localStorage.setItem('notif_service', String(serviceEnabled)); }, [serviceEnabled]);
@@ -48,7 +49,7 @@ function NotificationPage({ onNavigate, onBack, onOpenMonthlyReport, user, token
         if (cancelled) return;
         const nextNotifications = data.notifications || [];
         setNotifications(nextNotifications);
-        setScheduleLabel(data.notification_schedule_label || '매주 일요일');
+        setScheduleLabel(data.notification_schedule_label || getDefaultWeeklyScheduleLabel());
       })
       .catch(() => { if (!cancelled) setNotifications([]); })
       .finally(() => { if (!cancelled) setIsLoadingNotifications(false); });

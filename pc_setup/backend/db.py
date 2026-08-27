@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT,
     name TEXT NOT NULL,
-    birthplace TEXT,
+    phone TEXT,
     picture TEXT,
     provider TEXT NOT NULL DEFAULT 'email',
     provider_user_id TEXT,
@@ -97,8 +97,8 @@ def init_db():
 def _migrate(conn):
     """기존 DB를 삭제하지 않고 최신 스키마로 올린다."""
     user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
-    if "birthplace" not in user_columns:
-        conn.execute("ALTER TABLE users ADD COLUMN birthplace TEXT")
+    if "phone" not in user_columns:
+        conn.execute("ALTER TABLE users ADD COLUMN phone TEXT")
     if "provider_user_id" not in user_columns:
         conn.execute("ALTER TABLE users ADD COLUMN provider_user_id TEXT")
 
