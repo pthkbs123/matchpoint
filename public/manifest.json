@@ -1,22 +1,22 @@
 {
   "short_name": "SmileGuard",
-  "name": "SmileGuard 어린이 구강 건강 관리 및 충치 탐지",
+  "name": "SmileGuard 어린이의 구강 건강을 담당합니다",
   "icons": [
     {
-      "src": "favicon.ico",
-      "sizes": "64x64 32x32 24x24 16x16",
+      "src": "Gom.ico",
+      "sizes": "16x16, 32x32, 48x48, 64x64, 128x128, 256x256",
       "type": "image/x-icon"
     },
     {
-      "src": "logo192.png",
+      "src": "logo_Gom.png",
       "type": "image/png",
-      "sizes": "192x192",
+      "sizes": "500x500",
       "purpose": "any"
     },
     {
-      "src": "logo512.png",
+      "src": "logo_Gom.png",
       "type": "image/png",
-      "sizes": "512x512",
+      "sizes": "500x500",
       "purpose": "any"
     }
   ],
@@ -26,5 +26,5 @@
   "orientation": "portrait-primary",
   "theme_color": "#1769d2",
   "background_color": "#f5f9ff",
-  "description": "구강 촬영 결과와 변화 추이를 보호자가 확인하는 SmileGuard PWA"
+  "description": "어린이의 충치관리자 SmileGuard"
 }

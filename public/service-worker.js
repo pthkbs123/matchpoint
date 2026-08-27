@@ -1,6 +1,6 @@
 /* eslint-disable no-restricted-globals */
 const CACHE_NAME = "smileguard-cache-v1";
-const APP_SHELL = ["/", "/index.html", "/manifest.json", "/favicon.ico"];
+const APP_SHELL = ["/", "/index.html", "/manifest.json", "/Gom.ico"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
