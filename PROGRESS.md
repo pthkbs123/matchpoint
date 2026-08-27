@@ -98,6 +98,38 @@
 - 이 출처는 충치가 있는 사진 위주라 완전 정상 사진을 포함한 실제 배포 Precision으로 해석하지 않음.
 - 세부 CSV/JSON 및 보고서는 로컬 `public_validation` 폴더에 생성함.
 
+### Run A+H 실제 앱 배포 구현
+
+- 팀 저장소 최신 `upstream/main` 커밋 `2b7010c`를 기준으로 별도 브랜치
+  `feature/cavity-ensemble-deployment`를 생성함. 색상 분석 PR 커밋 `8b4c04c`는 아직 팀 main에
+  병합되지 않았으므로 이번 브랜치에는 섞지 않음.
+- runG test 100장과 실제 내시경 촬영 5장, 총 105장을 로컬 CPU에서 비교함.
+
+| 배포 방식 | 평균 | 중앙값 | p95 | 모델 로드 메모리 증가 | 추론 중 최대 증가 |
+|---|---:|---:|---:|---:|---:|
+| 기존 단일 모델 | 126.87 ms | 122.59 ms | 168.51 ms | 19.1 MB | 170.5 MB |
+| Run H 단일 | 112.21 ms | 106.71 ms | 162.23 ms | 19.0 MB | 167.6 MB |
+| **Run A+H 앙상블** | **215.67 ms** | **210.46 ms** | **242.70 ms** | **33.1 MB** | **195.3 MB** |
+
+- A+H가 CPU에서도 사진 한 장당 약 `0.22초`여서 현재 사진 촬영형 앱에 충분히 사용할 수 있다고 판단함.
+- 프로젝트 최우선 지표가 cavity Recall이므로, 속도·메모리 증가를 감수하고 A+H를 기본 배포 모드로 선택함.
+- 백엔드에 `detection_ensemble.py`를 추가해 다음 모드를 지원함.
+  - `ensemble`(기본): Run A cavity conf 0.10 + Run H cavity conf 0.15, IoU 0.50 NMS, normal은 Run A conf 0.25
+  - `runH`: Run H 단일 모델
+  - `legacy`: 기존 `best.pt` 단일 모델
+- 환경변수로 모드와 임계값을 바꿀 수 있으며 `/health`에서 현재 모드와 로드된 모델을 확인할 수 있음.
+- 배포 가중치 `best_runG_A.pt`, `best_runH.pt`도 브랜치에 포함함.
+- 검증:
+  - 백엔드 전체 단위 테스트 **14개 통과**
+  - 실제 내시경 사진으로 FastAPI `/health`, `/analyze` 모두 200 응답 확인
+  - 실제 응답에서 Run H cavity 2개 + Run A normal 13개, 총 15개 검출 확인
+  - 프론트 전체 **14 suites / 38 tests 통과**, production build 성공
+- 개인 GitHub 브랜치 push 완료: 커밋 `e6f89e2` (`feat: deploy Run A and Run H cavity ensemble`)
+- 다음 단계:
+  1. 팀 저장소로 Pull Request를 만들어 코드 리뷰 및 병합
+  2. 실제 앱에서 로그인 사용자/자녀 기준 정면 3회 기준선 + 4번째 측정 저장 흐름 검증
+  3. 정상 사진이 충분히 포함된 별도 실사용 검증 세트에서 A+H의 FP와 재촬영 안내 수준 조정
+
 ---
 
 ## 2026-08-26 Kaggle 최신 작업 복구 — 교수님 모델 vs Run A+H
