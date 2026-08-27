@@ -37,6 +37,7 @@ from color_analysis import (
     MAX_A,
     MAX_B,
     PREPROCESS_MODES,
+    PREPROCESS_ORIGINAL,
     PREPROCESS_WB_CLAHE,
     compute_gum_inflammation_details,
     compute_yellowing_details,
@@ -765,9 +766,10 @@ async def analyze(
     lab_a_mean = None
     try:
         image_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-        preprocessed = preprocess_bgr(image_bgr)
-        lab_b_mean = measure_yellowing_lab_b(preprocessed, detections)
-        lab_a_mean = measure_gum_lab_a(preprocessed, detections)
+        yellowing_bgr = preprocess_bgr(image_bgr, mode=PREPROCESS_WB_CLAHE)
+        gum_bgr = preprocess_bgr(image_bgr, mode=PREPROCESS_ORIGINAL)
+        lab_b_mean = measure_yellowing_lab_b(yellowing_bgr, detections)
+        lab_a_mean = measure_gum_lab_a(gum_bgr, detections)
     except Exception as exc:
         print(f"색상 분석 실패(무시하고 진행): {exc}")
 
