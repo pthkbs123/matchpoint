@@ -62,6 +62,50 @@ class ColorAnalysisTest(unittest.TestCase):
             places=1,
         )
         self.assertGreaterEqual(gum["valid_pixels"], 200)
+        self.assertEqual(gum["roi_band_ratio"], 0.15)
+        self.assertEqual(gum["roi_below_count"], 1)
+
+    def test_two_rows_use_above_for_upper_and_below_for_lower(self):
+        image = np.full((220, 240, 3), (30, 30, 30), dtype=np.uint8)
+        detections = []
+        for x1 in (30, 90, 150):
+            cv2.rectangle(image, (x1, 50), (x1 + 50, 90), (210, 210, 210), -1)
+            cv2.rectangle(image, (x1, 43), (x1 + 50, 49), (60, 70, 210), -1)
+            detections.append({
+                "class": "normal",
+                "confidence": 0.9,
+                "box": {"x1": x1, "y1": 50, "x2": x1 + 50, "y2": 90},
+            })
+        for x1 in (30, 90, 150):
+            cv2.rectangle(image, (x1, 130), (x1 + 50, 170), (210, 210, 210), -1)
+            cv2.rectangle(image, (x1, 171), (x1 + 50, 177), (60, 70, 210), -1)
+            detections.append({
+                "class": "normal",
+                "confidence": 0.9,
+                "box": {"x1": x1, "y1": 130, "x2": x1 + 50, "y2": 170},
+            })
+
+        gum = compute_gum_inflammation_details(image, detections)
+
+        self.assertEqual(gum["roi_above_count"], 3)
+        self.assertEqual(gum["roi_below_count"], 3)
+        self.assertGreaterEqual(gum["valid_pixels"], 200)
+
+    def test_single_upper_row_can_select_gum_above_teeth(self):
+        image = np.full((140, 180, 3), (30, 30, 30), dtype=np.uint8)
+        cv2.rectangle(image, (30, 50), (150, 100), (210, 210, 210), -1)
+        cv2.rectangle(image, (30, 42), (150, 49), (60, 70, 210), -1)
+        detections = [{
+            "class": "normal",
+            "confidence": 0.9,
+            "box": {"x1": 30, "y1": 50, "x2": 150, "y2": 100},
+        }]
+
+        gum = compute_gum_inflammation_details(image, detections)
+
+        self.assertEqual(gum["roi_above_count"], 1)
+        self.assertEqual(gum["roi_below_count"], 0)
+        self.assertGreaterEqual(gum["valid_pixels"], 200)
 
 
 if __name__ == "__main__":

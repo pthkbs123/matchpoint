@@ -1,6 +1,7 @@
 """
 YOLO 박스(cavity/normal) 좌표만 이용한 휴리스틱 색상 분석.
-잇몸을 별도로 탐지하는 모델이 없으므로, 치아 박스 바로 아래쪽 영역을 잇몸 후보로 추정한다.
+잇몸을 별도로 탐지하는 모델이 없으므로, 치열 배치와 점막색을 함께 이용해
+치아 박스 위·아래 중 잇몸 후보 영역을 추정한다.
 
 주의: 아래 BASELINE_*/MAX_* 상수는 임상적으로 검증된 값이 아니라
 일반적인 구강 사진 톤을 기준으로 잡은 휴리스틱 초깃값이다.
@@ -45,6 +46,7 @@ GUM_SAT_MIN = 40
 GUM_VAL_MIN = 40
 
 MIN_VALID_PIXELS = 200
+GUM_BAND_RATIO = 0.15
 
 
 def preprocess_bgr(
@@ -135,38 +137,138 @@ def measure_yellowing_lab_b(preprocessed_bgr: np.ndarray, detections: list) -> f
     return details["mean_lab_b"] if details["valid_pixels"] >= MIN_VALID_PIXELS else None
 
 
+def _gum_color_mask(hsv_region: np.ndarray) -> np.ndarray:
+    h_ch = hsv_region[:, :, 0]
+    s_ch = hsv_region[:, :, 1]
+    v_ch = hsv_region[:, :, 2]
+    hue_mask = (h_ch <= GUM_HUE_HIGH) | (h_ch >= GUM_HUE_WRAP_LOW)
+    return hue_mask & (s_ch >= GUM_SAT_MIN) & (v_ch >= GUM_VAL_MIN)
+
+
+def _gum_band(box: dict, side: str, width: int, height: int) -> tuple[int, int, int, int]:
+    box_h = box["y2"] - box["y1"]
+    band_h = max(1.0, GUM_BAND_RATIO * box_h)
+    if side == "above":
+        band_y1, band_y2 = box["y1"] - band_h, box["y1"]
+    else:
+        band_y1, band_y2 = box["y2"], box["y2"] + band_h
+    return _clip_box(box["x1"], band_y1, box["x2"], band_y2, width, height)
+
+
+def _clear_two_row_split(boxes: list[dict]) -> tuple[set[int], set[int]] | None:
+    """치아 중심 간 큰 공백이 확인될 때만 위·아래 치열을 분리한다."""
+    if len(boxes) < 4:
+        return None
+
+    ordered = sorted(
+        range(len(boxes)),
+        key=lambda index: (boxes[index]["y1"] + boxes[index]["y2"]) / 2.0,
+    )
+    centers = np.array(
+        [(boxes[index]["y1"] + boxes[index]["y2"]) / 2.0 for index in ordered],
+        dtype=np.float32,
+    )
+    gaps = np.diff(centers)
+    split_at = int(np.argmax(gaps))
+    upper = ordered[: split_at + 1]
+    lower = ordered[split_at + 1 :]
+    if len(upper) < 2 or len(lower) < 2:
+        return None
+
+    heights = np.array([box["y2"] - box["y1"] for box in boxes], dtype=np.float32)
+    within_gaps = np.delete(gaps, split_at)
+    usual_gap = float(np.median(within_gaps)) if within_gaps.size else 0.0
+    row_gap = float(gaps[split_at])
+    minimum_gap = max(8.0, float(np.median(heights)) * 0.35, usual_gap * 1.8)
+    if row_gap < minimum_gap:
+        return None
+    return set(upper), set(lower)
+
+
+def _candidate_gum_density(
+    hsv: np.ndarray,
+    boxes: list[dict],
+    side: str,
+    width: int,
+    height: int,
+) -> float:
+    valid_pixels = 0
+    total_pixels = 0
+    for box in boxes:
+        x1, y1, x2, y2 = _gum_band(box, side, width, height)
+        if x2 <= x1 or y2 <= y1:
+            continue
+        mask = _gum_color_mask(hsv[y1:y2, x1:x2])
+        valid_pixels += int(mask.sum())
+        total_pixels += int(mask.size)
+    return valid_pixels / total_pixels if total_pixels else 0.0
+
+
 def compute_gum_inflammation_details(preprocessed_bgr: np.ndarray, detections: list) -> dict:
-    """잇몸 LAB 건강점수와 독립 HSV 보조점수·원시 통계를 반환한다."""
+    """치열 방향을 반영한 잇몸 LAB 건강점수와 HSV 보조점수를 반환한다."""
     height, width = preprocessed_bgr.shape[:2]
     hsv = cv2.cvtColor(preprocessed_bgr, cv2.COLOR_BGR2HSV)
     lab = cv2.cvtColor(preprocessed_bgr, cv2.COLOR_BGR2LAB)
+
+    boxes = []
+    for detection in detections:
+        box = detection.get("box", {})
+        if box.get("y2", 0) > box.get("y1", 0):
+            boxes.append(box)
+
+    row_split = _clear_two_row_split(boxes)
+    if row_split:
+        upper_indexes, lower_indexes = row_split
+        sides = ["above" if index in upper_indexes else "below" for index in range(len(boxes))]
+    else:
+        above_density = _candidate_gum_density(hsv, boxes, "above", width, height)
+        below_density = _candidate_gum_density(hsv, boxes, "below", width, height)
+        selected_side = "above" if above_density > below_density else "below"
+        sides = [selected_side] * len(boxes)
 
     a_values = []
     h_values = []
     s_values = []
     v_values = []
-    for d in detections:
-        box_h = d["box"]["y2"] - d["box"]["y1"]
-        if box_h <= 0:
-            continue
-        band_y1 = d["box"]["y2"]
-        band_y2 = d["box"]["y2"] + 0.3 * box_h
-        x1, y1, x2, y2 = _clip_box(d["box"]["x1"], band_y1, d["box"]["x2"], band_y2, width, height)
+    used_sides = []
+    for box, preferred_side in zip(boxes, sides):
+        x1, y1, x2, y2 = _gum_band(box, preferred_side, width, height)
         if x2 <= x1 or y2 <= y1:
             continue
 
         hsv_region = hsv[y1:y2, x1:x2]
         lab_region = lab[y1:y2, x1:x2]
+        mask = _gum_color_mask(hsv_region)
+        used_side = preferred_side
+        if not mask.any():
+            opposite_side = "below" if preferred_side == "above" else "above"
+            opposite = _gum_band(box, opposite_side, width, height)
+            ox1, oy1, ox2, oy2 = opposite
+            if ox2 > ox1 and oy2 > oy1:
+                opposite_hsv = hsv[oy1:oy2, ox1:ox2]
+                opposite_mask = _gum_color_mask(opposite_hsv)
+                if opposite_mask.any():
+                    x1, y1, x2, y2 = opposite
+                    hsv_region = opposite_hsv
+                    lab_region = lab[y1:y2, x1:x2]
+                    mask = opposite_mask
+                    used_side = opposite_side
+
         h_ch = hsv_region[:, :, 0]
         s_ch = hsv_region[:, :, 1]
         v_ch = hsv_region[:, :, 2]
-        hue_mask = (h_ch <= GUM_HUE_HIGH) | (h_ch >= GUM_HUE_WRAP_LOW)
-        mask = hue_mask & (s_ch >= GUM_SAT_MIN) & (v_ch >= GUM_VAL_MIN)
         if mask.any():
             a_values.append(lab_region[:, :, 1][mask].astype(np.float32))
             h_values.append(h_ch[mask].astype(np.float32))
             s_values.append(s_ch[mask].astype(np.float32))
             v_values.append(v_ch[mask].astype(np.float32))
+            used_sides.append(used_side)
+
+    roi_details = {
+        "roi_band_ratio": GUM_BAND_RATIO,
+        "roi_above_count": used_sides.count("above"),
+        "roi_below_count": used_sides.count("below"),
+    }
 
     if not a_values:
         return {
@@ -179,6 +281,7 @@ def compute_gum_inflammation_details(preprocessed_bgr: np.ndarray, detections: l
             "mean_hsv_s": None,
             "mean_hsv_v": None,
             "valid_pixels": 0,
+            **roi_details,
         }
 
     all_a = np.concatenate(a_values)
@@ -194,6 +297,7 @@ def compute_gum_inflammation_details(preprocessed_bgr: np.ndarray, detections: l
         "mean_hsv_s": round(float(all_s.mean()), 3),
         "mean_hsv_v": round(float(all_v.mean()), 3),
         "valid_pixels": int(all_a.size),
+        **roi_details,
     }
     if all_a.size < MIN_VALID_PIXELS:
         return {
