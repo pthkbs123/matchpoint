@@ -142,6 +142,33 @@ function App() {
     setAnalysisResult(null);
   }, []);
 
+  const handleRotateCapture = useCallback((degrees) => {
+    if (!capturedBlob) return;
+
+    const sourceUrl = URL.createObjectURL(capturedBlob);
+    const sourceImage = new Image();
+    sourceImage.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = sourceImage.naturalHeight;
+      canvas.height = sourceImage.naturalWidth;
+      const context = canvas.getContext('2d');
+      if (!context) {
+        URL.revokeObjectURL(sourceUrl);
+        return;
+      }
+
+      context.translate(canvas.width / 2, canvas.height / 2);
+      context.rotate((degrees * Math.PI) / 180);
+      context.drawImage(sourceImage, -sourceImage.naturalWidth / 2, -sourceImage.naturalHeight / 2);
+      canvas.toBlob((rotatedBlob) => {
+        URL.revokeObjectURL(sourceUrl);
+        if (rotatedBlob) handleCapture(rotatedBlob, rotatedBlob);
+      }, 'image/jpeg', 0.96);
+    };
+    sourceImage.onerror = () => URL.revokeObjectURL(sourceUrl);
+    sourceImage.src = sourceUrl;
+  }, [capturedBlob, handleCapture]);
+
   const handleLogin = ({ user, accessToken, provider, remember }) => {
     const storage = remember ? localStorage : sessionStorage;
     const nextSession = {
@@ -188,7 +215,7 @@ function App() {
     'care-guide': <CareGuidePage onNavigate={navigate} onBack={() => goBack('home')} />,
     'pre-capture': <PreCapturePage onNavigate={navigate} onBack={() => goBack('home')} token={session?.accessToken} selectedChildId={selectedChildId} />,
     camera: <CameraPage onNavigate={navigate} onBack={() => goBack('home')} onCapture={handleCapture} token={session?.accessToken} selectedChildId={selectedChildId} />,
-    preview: <CapturePreviewPage onNavigate={navigate} onBack={() => goBack('camera')} capturedUrl={capturedUrl} />,
+    preview: <CapturePreviewPage onNavigate={navigate} onBack={() => goBack('camera')} capturedUrl={capturedUrl} onRotate={handleRotateCapture} />,
     analyzing: (
       <AnalyzingPage
         onNavigate={navigate}

@@ -37,6 +37,7 @@ from color_analysis import (
     measure_yellowing_lab_b,
     preprocess_bgr,
 )
+from capture_quality import assess_capture_quality
 
 BACKEND_DIR = Path(__file__).parent
 PROJECT_ROOT = BACKEND_DIR.parent.parent
@@ -655,6 +656,33 @@ async def analyze(
 
     cavity_count = sum(1 for d in detections if d["class"] == "cavity")
     normal_count = sum(1 for d in detections if d["class"] == "normal")
+    capture_quality = assess_capture_quality(detections)
+
+    if not capture_quality["valid"]:
+        return {
+            "image_size": {"width": image.width, "height": image.height},
+            "detections": [],
+            "summary": {
+                "cavity_count": 0,
+                "normal_count": 0,
+                "total_detections": 0,
+                "score": None,
+                "overall_score": None,
+                "yellowing_index": None,
+                "gum_inflammation_index": None,
+                "yellowing_delta": None,
+                "gum_inflammation_delta": None,
+            },
+            "capture_quality": capture_quality,
+            "feedback": {
+                "type": "capture_retry",
+                "title": "치아가 잘 보이도록 한 번 더!",
+                "message": "입안과 치아가 화면 중앙에 보이도록 다시 촬영해 주세요.",
+                "parentTitle": "구강 사진을 확인해 주세요",
+                "parentMessage": "치아 영역이 충분히 확인되지 않아 분석 결과를 저장하지 않았습니다.",
+            },
+        }
+
     score = _score_from_detections(cavity_count)
 
     lab_b_mean = None
@@ -754,6 +782,7 @@ async def analyze(
     return {
         "image_size": {"width": image.width, "height": image.height},
         "detections": detections,
+        "capture_quality": capture_quality,
         "summary": {
             "cavity_count": cavity_count,
             "normal_count": normal_count,

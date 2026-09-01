@@ -26,9 +26,13 @@ function ResultPage({ onNavigate, analysisResult, capturedUrl }) {
   const isBaselineCalibrating = isPersonalBaseline
     && (!yellowingBaseline?.ready || !gumBaseline?.ready);
   const detections = analysisResult?.detections || [];
+  const captureQuality = analysisResult?.capture_quality;
+  const isRejectedCapture = captureQuality?.valid === false;
+  const visibleDetections = isRejectedCapture ? [] : detections;
   const feedback = resolveAnalysisFeedback(analysisResult);
   const hasCavity = feedback.type === 'cavity_alert';
-  const hasDetection = detections.length > 0;
+  const hasDetection = visibleDetections.length > 0;
+  const showAnalysisMetrics = !isRejectedCapture && hasDetection;
   const hasScore = hasMetricValue(score);
   const imageSize = analysisResult?.image_size;
   const characterFeedbackEnabled = isCharacterFeedbackEnabled();
@@ -71,8 +75,8 @@ function ResultPage({ onNavigate, analysisResult, capturedUrl }) {
 
           {capturedUrl && imageSize && (
             <div className="result-image">
-              <img src={capturedUrl} alt="분석된 구강 사진" />
-              {detections.map((d, index) => {
+              <img src={capturedUrl} alt="촬영한 사진" />
+              {visibleDetections.map((d, index) => {
                 const left = (d.box.x1 / imageSize.width) * 100;
                 const top = (d.box.y1 / imageSize.height) * 100;
                 const boxWidth = ((d.box.x2 - d.box.x1) / imageSize.width) * 100;
@@ -91,11 +95,11 @@ function ResultPage({ onNavigate, analysisResult, capturedUrl }) {
 
           {hasDetection && (
             <p className="detection-summary">
-              전체 인식 {detections.length}곳 · 정상으로 인식 {normalCount}곳
+              전체 인식 {visibleDetections.length}곳 · 정상으로 인식 {normalCount}곳
             </p>
           )}
 
-          {isBaselineCalibrating && (
+          {showAnalysisMetrics && isBaselineCalibrating && (
             <section className="baseline-progress-card" aria-label="개인 색상 기준값 설정 진행률">
               <div>
                 <strong>내 아이의 평소 상태를 확인하고 있어요</strong>
@@ -112,7 +116,7 @@ function ResultPage({ onNavigate, analysisResult, capturedUrl }) {
             </section>
           )}
 
-          <div className="metric-grid result-metric-grid">
+          {showAnalysisMetrics && <div className="metric-grid result-metric-grid">
             <article className={`metric ${!hasScore ? 'pending' : Number(score) >= 80 ? 'good' : 'watch'}`}>
               <span>종합 점수</span>
               <strong>{hasScore ? formatMetricValue(score) : '준비 중'}</strong>
@@ -161,15 +165,17 @@ function ResultPage({ onNavigate, analysisResult, capturedUrl }) {
                     : '색상 분석 예정'}
               </span>
             </article>
-          </div>
+          </div>}
 
-          <div className={`notice ${!hasDetection ? 'retry-notice' : ''}`}>
+          <div className={`notice ${!showAnalysisMetrics ? 'retry-notice' : ''}`}>
             <strong>보호자 안내</strong>
             <br />
-            이 결과는 건강 관리를 돕는 AI 참고 지표이며 의료 진단을 대신하지 않습니다.
+            {showAnalysisMetrics
+              ? '이 결과는 건강 관리를 돕는 AI 참고 지표이며 의료 진단을 대신하지 않습니다.'
+              : '이번 사진은 분석 결과와 개인 기준값에 반영하지 않습니다.'}
           </div>
 
-          {!hasDetection && (
+          {!showAnalysisMetrics && (
             <button className="login-button result-retry" onClick={() => onNavigate('camera')}>
               다시 촬영하기
             </button>

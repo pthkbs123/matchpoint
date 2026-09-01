@@ -1,4 +1,4 @@
-function CapturePreviewPage({ onNavigate, onBack, capturedUrl }) {
+function CapturePreviewPage({ onNavigate, onBack, capturedUrl, onRotate }) {
   return (
     <section className="phone camera-screen">
       <div className="camera-view">
@@ -9,6 +9,10 @@ function CapturePreviewPage({ onNavigate, onBack, capturedUrl }) {
         {capturedUrl && <img src={capturedUrl} alt="촬영된 사진" className="camera-feed" />}
         <span className="preview-label">사진이 선명하게 촬영됐나요?</span>
         <div className="camera-guide" />
+        <div className="preview-rotation-actions" aria-label="사진 방향 조정">
+          <button type="button" onClick={() => onRotate?.(-90)}>↶ 왼쪽 회전</button>
+          <button type="button" onClick={() => onRotate?.(90)}>오른쪽 회전 ↷</button>
+        </div>
       </div>
       <div className="preview-actions">
         <button className="action" onClick={onBack || (() => onNavigate('camera'))}>다시 촬영</button>

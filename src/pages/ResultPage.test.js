@@ -73,6 +73,33 @@ test('치아가 감지되지 않으면 재촬영 안내와 이동 버튼을 표�
   expect(onNavigate).toHaveBeenCalledWith('camera');
 });
 
+test('구강 사진이 아니면 오탐 박스와 성능 지표를 표시하지 않는다', () => {
+  const { container } = render(
+    <ResultPage
+      onNavigate={jest.fn()}
+      capturedUrl="blob:invalid-image"
+      analysisResult={{
+        image_size: { width: 1000, height: 700 },
+        detections: cavityResult.detections,
+        summary: { cavity_count: 2, normal_count: 0, score: 70 },
+        capture_quality: { valid: false, code: 'insufficient_tooth_regions' },
+        feedback: {
+          type: 'capture_retry',
+          parentTitle: '구강 사진을 확인해 주세요',
+          parentMessage: '치아 영역이 충분히 확인되지 않아 분석 결과를 저장하지 않았습니다.',
+        },
+      }}
+    />
+  );
+
+  expect(screen.getByText('구강 사진을 확인해 주세요')).toBeInTheDocument();
+  expect(screen.getByText('이번 사진은 분석 결과와 개인 기준값에 반영하지 않습니다.')).toBeInTheDocument();
+  expect(screen.queryByText('종합 점수')).not.toBeInTheDocument();
+  expect(screen.queryByText('충치 의심')).not.toBeInTheDocument();
+  expect(container.querySelector('.detect-box')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '다시 촬영하기' })).toBeInTheDocument();
+});
+
 test('공통 설정에서 캐릭터 피드백을 끄면 일반 결과 안내를 표시한다', () => {
   setCharacterFeedbackEnabled(false);
   const { container } = render(
